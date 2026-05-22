@@ -11,6 +11,9 @@ export default {
     tempEmails: '临时邮箱',
     refresh: 'Token 刷新',
     forwarding: '邮件转发',
+    forwardingHistory: '转发历史',
+    tags: '标签管理',
+    projects: '项目',
     webdav: 'WebDAV 备份',
     settings: '系统设置'
   },

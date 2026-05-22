@@ -55,10 +55,28 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: 'menu.forwarding', icon: 'tabler:send' }
       },
       {
+        path: 'forwarding/history',
+        name: 'forwarding-history',
+        component: () => import('@/views/forwarding/history.vue'),
+        meta: { title: 'menu.forwardingHistory', icon: 'tabler:history' }
+      },
+      {
         path: 'webdav',
         name: 'webdav',
         component: () => import('@/views/webdav/index.vue'),
         meta: { title: 'menu.webdav', icon: 'tabler:cloud-upload' }
+      },
+      {
+        path: 'tags',
+        name: 'tags',
+        component: () => import('@/views/tags/index.vue'),
+        meta: { title: 'menu.tags', icon: 'tabler:tags' }
+      },
+      {
+        path: 'projects',
+        name: 'projects',
+        component: () => import('@/views/projects/index.vue'),
+        meta: { title: 'menu.projects', icon: 'tabler:briefcase' }
       },
       {
         path: 'settings',

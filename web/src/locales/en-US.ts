@@ -11,6 +11,9 @@ export default {
     tempEmails: 'Temp Mail',
     refresh: 'Token Refresh',
     forwarding: 'Forwarding',
+    forwardingHistory: 'Fwd History',
+    tags: 'Tags',
+    projects: 'Projects',
     webdav: 'WebDAV Backup',
     settings: 'Settings'
   },

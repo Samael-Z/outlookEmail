@@ -6,6 +6,7 @@ import { accountsApi, type Account, type Group } from '@/service/api/accounts';
 import { Icon } from '@iconify/vue';
 import AccountImportDialog from '@/components/AccountImportDialog.vue';
 import AccountEditDrawer from '@/components/AccountEditDrawer.vue';
+import AccountExportDialog from '@/components/AccountExportDialog.vue';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -21,6 +22,7 @@ const filterType = ref<string>('');
 
 const checked = ref<number[]>([]);
 const showImport = ref(false);
+const showExport = ref(false);
 const showEdit = ref(false);
 const editAccountId = ref<number | null>(null);
 
@@ -197,6 +199,9 @@ onMounted(async () => {
         <n-button @click="loadAccounts">
           <Icon icon="tabler:refresh" /> <span class="ml-1">刷新</span>
         </n-button>
+        <n-button @click="showExport = true">
+          <Icon icon="tabler:download" /> <span class="ml-1">导出</span>
+        </n-button>
         <n-button type="primary" @click="showImport = true">
           <Icon icon="tabler:plus" /> <span class="ml-1">添加账号</span>
         </n-button>
@@ -258,6 +263,7 @@ onMounted(async () => {
     />
 
     <AccountImportDialog v-model:show="showImport" @imported="loadAccounts" />
+    <AccountExportDialog v-model:show="showExport" />
     <AccountEditDrawer
       v-model:show="showEdit"
       :account-id="editAccountId"

@@ -138,6 +138,13 @@ export const accountsApi = {
       data: { aliases }
     });
   },
+  verifyExportPassword(password: string) {
+    return http<{ success: boolean; verify_token?: string; error?: string }>({
+      method: 'POST',
+      url: '/api/export/verify',
+      data: { password }
+    });
+  },
   batchDelete(ids: number[]) {
     return http<{
       success: boolean;
