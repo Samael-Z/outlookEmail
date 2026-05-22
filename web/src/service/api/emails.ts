@@ -36,5 +36,19 @@ export const emailsApi = {
       method: 'GET',
       url: `/api/email/${encodeURIComponent(email)}/${encodeURIComponent(messageId)}`
     });
+  },
+  markRead(email: string, items: Array<{ id: string; folder?: string; id_mode?: string }>) {
+    return http<{ success: boolean; success_count?: number; failed_count?: number; error?: any }>({
+      method: 'POST',
+      url: '/api/emails/mark-read',
+      data: { email, items }
+    });
+  },
+  deleteMany(email: string, ids: string[]) {
+    return http<{ success: boolean; success_count?: number; failed_count?: number; error?: any }>({
+      method: 'POST',
+      url: '/api/emails/delete',
+      data: { email, ids }
+    });
   }
 };

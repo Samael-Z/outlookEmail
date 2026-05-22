@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { useMessage } from 'naive-ui';
+import { useMessage, useDialog } from 'naive-ui';
 import { Icon } from '@iconify/vue';
 import { accountsApi, type Group, type Account } from '@/service/api/accounts';
 import { emailsApi, type EmailListItem, type Folder } from '@/service/api/emails';
 import GroupManageDrawer from '@/components/GroupManageDrawer.vue';
 
 const message = useMessage();
+const dialog = useDialog();
 const showGroupManage = ref(false);
+const checked = ref<string[]>([]);
+const acting = ref(false);
 
 const groups = ref<Group[]>([]);
 const accounts = ref<Account[]>([]);
@@ -82,6 +85,80 @@ async function refreshEmails() {
   } finally {
     refreshing.value = false;
   }
+}
+
+function toggleCheck(id: string) {
+  const idx = checked.value.indexOf(id);
+  if (idx >= 0) checked.value.splice(idx, 1);
+  else checked.value.push(id);
+}
+
+function selectAll() {
+  if (checked.value.length === emails.value.length) {
+    checked.value = [];
+  } else {
+    checked.value = emails.value.filter(e => e.id).map(e => String(e.id));
+  }
+}
+
+async function batchMarkRead() {
+  if (!selectedAccount.value || !checked.value.length) return;
+  acting.value = true;
+  try {
+    const items = checked.value.map(id => {
+      const m = emails.value.find(e => String(e.id) === id);
+      return {
+        id,
+        folder: m?.folder || folder.value,
+        id_mode: m?.id_mode
+      };
+    });
+    const r = await emailsApi.markRead(selectedAccount.value.email, items);
+    if (r.success) {
+      message.success(`已标记 ${r.success_count || items.length} 封为已读`);
+      await loadEmails();
+      checked.value = [];
+    } else {
+      message.error(typeof r.error === 'string' ? r.error : '操作失败');
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '操作失败');
+  } finally {
+    acting.value = false;
+  }
+}
+
+function batchDelete() {
+  if (!selectedAccount.value || !checked.value.length) return;
+  dialog.warning({
+    title: '永久删除',
+    content: `确定永久删除选中的 ${checked.value.length} 封邮件？该操作不可撤销。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      acting.value = true;
+      try {
+        const r = await emailsApi.deleteMany(
+          selectedAccount.value!.email,
+          checked.value.map(String)
+        );
+        if (r.success) {
+          message.success(`已删除 ${r.success_count || checked.value.length} 封`);
+          await loadEmails();
+          checked.value = [];
+          if (detail.value && checked.value.includes(String(detail.value.id))) {
+            detail.value = null;
+          }
+        } else {
+          message.error(typeof r.error === 'string' ? r.error : '删除失败');
+        }
+      } catch (e: any) {
+        message.error(e?.response?.data?.error || '删除失败');
+      } finally {
+        acting.value = false;
+      }
+    }
+  });
 }
 
 async function openEmail(item: EmailListItem) {
@@ -192,16 +269,42 @@ onMounted(loadGroups);
                     />
                   </template>
                   <template #header-extra>
-                    <n-button
-                      size="small"
-                      type="primary"
-                      :loading="refreshing"
-                      :disabled="!selectedAccount"
-                      @click="refreshEmails"
-                    >
-                      <Icon icon="tabler:refresh" />
-                      <span class="ml-1">刷新</span>
-                    </n-button>
+                    <n-space size="small">
+                      <n-button
+                        v-if="emails.length"
+                        size="tiny"
+                        @click="selectAll"
+                      >
+                        {{ checked.length === emails.length ? '清空' : '全选' }}
+                      </n-button>
+                      <n-button
+                        v-if="checked.length"
+                        size="tiny"
+                        :loading="acting"
+                        @click="batchMarkRead"
+                      >
+                        <Icon icon="tabler:eye-check" />
+                        <span class="ml-1">已读 ({{ checked.length }})</span>
+                      </n-button>
+                      <n-button
+                        v-if="checked.length"
+                        size="tiny"
+                        type="error"
+                        :loading="acting"
+                        @click="batchDelete"
+                      >
+                        <Icon icon="tabler:trash" />
+                      </n-button>
+                      <n-button
+                        size="small"
+                        type="primary"
+                        :loading="refreshing"
+                        :disabled="!selectedAccount"
+                        @click="refreshEmails"
+                      >
+                        <Icon icon="tabler:refresh" />
+                      </n-button>
+                    </n-space>
                   </template>
 
                   <n-spin v-if="loadingEmails" />
@@ -219,6 +322,13 @@ onMounted(loadGroups);
                       :style="{ background: detail?.id === e.id ? 'rgba(100,108,255,0.08)' : '' }"
                     >
                       <div class="flex-y-center mb-1">
+                        <n-checkbox
+                          v-if="e.id"
+                          :checked="checked.includes(String(e.id))"
+                          class="mr-2"
+                          @click.stop
+                          @update:checked="() => toggleCheck(String(e.id))"
+                        />
                         <n-tag v-if="e.isUnread || e.isRead === false" size="tiny" type="info" class="mr-2">
                           未读
                         </n-tag>

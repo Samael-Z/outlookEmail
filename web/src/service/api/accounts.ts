@@ -28,6 +28,13 @@ export const accountsApi = {
       url: '/api/groups'
     });
   },
+  search(q: string, limit = 20) {
+    return http<{ success: boolean; accounts: Account[]; total: number }>({
+      method: 'GET',
+      url: '/api/accounts/search',
+      params: { q, limit }
+    });
+  },
   listAccounts(params: { group_id?: number; limit?: number; offset?: number; keyword?: string } | number = {}) {
     const p = typeof params === 'number' ? { group_id: params } : params;
     return http<{
@@ -99,10 +106,36 @@ export const accountsApi = {
       data: body
     });
   },
+  getAccount(id: number) {
+    return http<{ success: boolean; account?: any; error?: string }>({
+      method: 'GET',
+      url: `/api/accounts/${id}`
+    });
+  },
+  updateAccount(id: number, body: Record<string, any>) {
+    return http<{ success: boolean; message?: string; error?: string; aliases?: string[] }>({
+      method: 'PUT',
+      url: `/api/accounts/${id}`,
+      data: body
+    });
+  },
   deleteAccount(id: number) {
     return http<{ success: boolean; error?: string }>({
       method: 'DELETE',
       url: `/api/accounts/${id}`
+    });
+  },
+  getAliases(id: number) {
+    return http<{ success: boolean; aliases?: string[]; error?: string }>({
+      method: 'GET',
+      url: `/api/accounts/${id}/aliases`
+    });
+  },
+  updateAliases(id: number, aliases: string[]) {
+    return http<{ success: boolean; aliases?: string[]; error?: string; errors?: string[] }>({
+      method: 'PUT',
+      url: `/api/accounts/${id}/aliases`,
+      data: { aliases }
     });
   },
   batchDelete(ids: number[]) {

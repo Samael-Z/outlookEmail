@@ -5,6 +5,7 @@ import type { DataTableColumns } from 'naive-ui';
 import { accountsApi, type Account, type Group } from '@/service/api/accounts';
 import { Icon } from '@iconify/vue';
 import AccountImportDialog from '@/components/AccountImportDialog.vue';
+import AccountEditDrawer from '@/components/AccountEditDrawer.vue';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -20,6 +21,8 @@ const filterType = ref<string>('');
 
 const checked = ref<number[]>([]);
 const showImport = ref(false);
+const showEdit = ref(false);
+const editAccountId = ref<number | null>(null);
 
 const TYPE_COLOR: Record<string, string> = {
   outlook: 'info',
@@ -107,18 +110,31 @@ const columns: DataTableColumns<Account> = [
   {
     title: '操作',
     key: 'actions',
-    width: 100,
+    width: 160,
     render: row =>
-      h(
-        NButton,
-        {
-          size: 'small',
-          type: 'error',
-          ghost: true,
-          onClick: () => deleteOne(row)
-        },
-        { default: () => '删除' }
-      )
+      h(NSpace, { size: 'small' }, () => [
+        h(
+          NButton,
+          {
+            size: 'small',
+            onClick: () => {
+              editAccountId.value = row.id;
+              showEdit.value = true;
+            }
+          },
+          { default: () => '编辑' }
+        ),
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'error',
+            ghost: true,
+            onClick: () => deleteOne(row)
+          },
+          { default: () => '删除' }
+        )
+      ])
   }
 ];
 
@@ -242,5 +258,10 @@ onMounted(async () => {
     />
 
     <AccountImportDialog v-model:show="showImport" @imported="loadAccounts" />
+    <AccountEditDrawer
+      v-model:show="showEdit"
+      :account-id="editAccountId"
+      @saved="loadAccounts"
+    />
   </n-card>
 </template>

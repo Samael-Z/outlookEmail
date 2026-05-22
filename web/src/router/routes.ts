@@ -49,6 +49,18 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: 'menu.refresh', icon: 'tabler:refresh' }
       },
       {
+        path: 'forwarding',
+        name: 'forwarding',
+        component: () => import('@/views/forwarding/index.vue'),
+        meta: { title: 'menu.forwarding', icon: 'tabler:send' }
+      },
+      {
+        path: 'webdav',
+        name: 'webdav',
+        component: () => import('@/views/webdav/index.vue'),
+        meta: { title: 'menu.webdav', icon: 'tabler:cloud-upload' }
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/settings/index.vue'),

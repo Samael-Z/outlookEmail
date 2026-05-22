@@ -7,6 +7,7 @@ import { useAppStore } from '@/store/modules/app';
 import { useThemeStore } from '@/store/modules/theme';
 import { useAuthStore } from '@/store/modules/auth';
 import { setLocale } from '@/locales';
+import GlobalSearch from '@/components/GlobalSearch.vue';
 
 const router = useRouter();
 const { t } = useI18n();
@@ -38,6 +39,8 @@ async function handleLogout() {
     </n-button>
 
     <div class="flex-1" />
+
+    <GlobalSearch class="mr-3" />
 
     <n-button text class="mr-3" @click="toggleLocale">
       <Icon icon="tabler:language" class="text-18px" />
