@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+src/typings/auto-imports.d.ts
+src/typings/components.d.ts

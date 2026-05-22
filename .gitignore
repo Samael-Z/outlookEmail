@@ -1,3 +1,10 @@
+# 前端构建 / 依赖
+web/node_modules/
+web/dist/
+web/.vite/
+web/src/typings/auto-imports.d.ts
+web/src/typings/components.d.ts
+
 # Python
 __pycache__/
 *.py[cod]

@@ -13,6 +13,7 @@ from werkzeug.serving import make_server
 
 SEGMENT_FILES = (
     "01_bootstrap.py",
+    "00_spa_serve.py",
     "02_groups_accounts.py",
     "03_mail_helpers.py",
     "04_routes_groups_accounts.py",
@@ -21,6 +22,8 @@ SEGMENT_FILES = (
     "07_routes_oauth_settings_external.py",
     "08_forwarding_scheduler_errors.py",
     "09_routes_system_update.py",
+    "10_routes_internal_eml.py",
+    "11_routes_spa_catchall.py",
 )
 
 SEGMENTS_DIR = Path(__file__).resolve().parent / "outlook_web" / "segments"

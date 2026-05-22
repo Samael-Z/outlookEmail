@@ -52,15 +52,18 @@ def login():
             traceback.print_exc()
             return jsonify({'success': False, 'error': f'登录处理失败: {str(e)}'}), 500
 
-    # GET 请求返回登录页面
-    return render_template('login.html')
+    # GET 请求：返回 SPA（Vue 前端会渲染登录页）；若无构建产物，回退到旧模板
+    return _serve_spa_or_fallback('login.html')
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['GET', 'POST'])
 def logout():
-    """退出登录"""
+    """退出登录：JSON 响应，不再 redirect（由前端处理跳转）"""
     session.pop('logged_in', None)
-    return redirect(url_for('login'))
+    if request.is_json or request.path.startswith('/api/') or request.method == 'POST':
+        return jsonify({'success': True})
+    # GET 兼容：仍然返回 SPA，前端 router guard 会把用户带去 /login
+    return _serve_spa_or_fallback('login.html')
 
 
 @app.route('/favicon.ico')
@@ -76,36 +79,13 @@ def favicon():
     return response
 
 
-@app.route('/assets/index.css')
-def bundled_index_css():
-    """返回合并后的首页样式，避免代理层拦截 CSS @import 子请求。"""
-    css_root = Path(app.static_folder) / 'css' / 'index'
-    css_parts = (
-        '01-base.css',
-        '02-navbar.css',
-        '03-layout.css',
-        '04-account-panel.css',
-        '05-email-content.css',
-        '06-modals-toast.css',
-        '07-meta.css',
-        '08-responsive.css',
-    )
-
-    combined_css = '\n\n'.join(
-        (css_root / filename).read_text(encoding='utf-8')
-        for filename in css_parts
-    )
-    return Response(combined_css, mimetype='text/css')
-
-
 @app.route('/')
 @login_required
 def index():
-    """主页"""
-    return render_template(
+    """主页：返回 Vue SPA；无构建产物时回退到旧 Jinja 模板"""
+    return _serve_spa_or_fallback(
         'index.html',
-        app_version=APP_VERSION,
-        changelog_url=CHANGELOG_URL,
+        template_context={'app_version': APP_VERSION, 'changelog_url': CHANGELOG_URL}
     )
 
 

@@ -14,6 +14,11 @@ datas = [
     (str(project_root / "VERSION"), "."),
 ]
 
+# Vue SPA 构建产物：存在才打包，避免在前端尚未构建时阻塞 exe 构建
+_web_dist = project_root / "web" / "dist"
+if _web_dist.is_dir():
+    datas.append((str(_web_dist), "web/dist"))
+
 
 def collect_segment_hiddenimports():
     hidden = set()
