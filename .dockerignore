@@ -43,3 +43,9 @@ docker-compose.yml
 # 文档
 README.md
 *.md
+
+# 前端构建产物与依赖：dist 由 Stage 1 在容器里重新构建，
+# node_modules 不进入主镜像
+web/node_modules/
+web/dist/
+web/.vite/

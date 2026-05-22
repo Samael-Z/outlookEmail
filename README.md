@@ -1,6 +1,25 @@
 # 多邮箱邮件管理工具
 
-一个面向多邮箱账号场景的邮件管理工具，支持通过 Outlook/Hotmail OAuth、Microsoft Graph API 和标准 IMAP 统一读取、管理和转发邮件，并提供 Web 界面用于分组管理、账号管理、邮件查看和对外 API 调用。当前支持 Outlook/Hotmail、Gmail、QQ、163、126、Yahoo、阿里邮箱以及自定义 IMAP 邮箱，同时集成 GPTMail、DuckMail、Cloudflare Temp Email 多提供商临时邮箱能力。
+一个面向多邮箱账号场景的邮件管理工具，支持通过 Outlook/Hotmail OAuth、Microsoft Graph API 和标准 IMAP 统一读取、管理和转发邮件，并提供 Web 界面用于分组管理、账号管理、邮件查看和对外 API 调用。当前支持 Outlook/Hotmail、Gmail、QQ、163、126、Yahoo、阿里邮箱以及自定义 IMAP 邮箱，同时集成 GPTMail、DuckMail、Cloudflare Temp Email 多提供商临时邮箱能力，以及内网 EML 邮件服务器（`@cs2jp.com` / `@jokerque.com` 等域名）。
+
+> 🚧 `dev-vue` 分支正在进行前端重构：从原生 JS + Jinja 模板迁移到 Vue 3 + Vite + Naive UI（参考 [Soybean Admin](https://soybeanjs.cn) 视觉风格），同时新增内网 EML 邮箱接入。详见 [docs/REFACTOR_PLAN_VUE.md](docs/REFACTOR_PLAN_VUE.md)。
+> 重构期间后端会优先返回 Vue 构建产物 `web/dist/`，若该目录不存在则自动回退到旧 Jinja 模板，**回退路径无需任何手工切换**。
+
+## 🛠️ 开发模式启动（dev-vue 分支）
+
+```bash
+# 1. 启动 Flask 后端（端口 5000）
+export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+python web_outlook_app.py
+
+# 2. 另开终端启动 Vue 前端 dev server（端口 5173，通过 vite proxy 转发 /api 到 :5000）
+cd web
+npm install
+npm run dev
+# 浏览器打开 http://127.0.0.1:5173
+```
+
+生产部署时只需 `cd web && npm run build`，Flask 会自动 serve 构建产物。
 ## 📦 快速开始
 ### 体验站点（可能非最新版本）
 https://aso.de5.net
