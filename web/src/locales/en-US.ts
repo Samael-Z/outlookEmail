@@ -14,6 +14,8 @@ export default {
     forwardingHistory: 'Fwd History',
     tags: 'Tags',
     projects: 'Projects',
+    auditLogs: 'Audit Logs',
+    dockerUpdate: 'Docker Update',
     webdav: 'WebDAV Backup',
     settings: 'Settings'
   },

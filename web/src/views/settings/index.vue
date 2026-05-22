@@ -25,6 +25,16 @@ const changingPwd = ref(false);
 const apiKey = ref('');
 const rotatingKey = ref(false);
 
+// 高级设置
+const duckmailForm = ref({ duckmail_base_url: '', duckmail_api_key: '' });
+const cloudflareForm = ref({
+  cloudflare_worker_domain: '',
+  cloudflare_email_domains: '',
+  cloudflare_admin_password: ''
+});
+const advancedForm = ref({ app_timezone: '' });
+const savingAdvanced = ref(false);
+
 const tab = ref('general');
 
 const presetColors = [
@@ -44,8 +54,36 @@ async function loadSettings() {
     const res = await settingsApi.get();
     settings.value = res.settings || {};
     apiKey.value = res.settings?.external_api_key || '';
+    duckmailForm.value.duckmail_base_url = String(res.settings?.duckmail_base_url || '');
+    duckmailForm.value.duckmail_api_key = String(res.settings?.duckmail_api_key || '');
+    cloudflareForm.value.cloudflare_worker_domain = String(res.settings?.cloudflare_worker_domain || '');
+    cloudflareForm.value.cloudflare_email_domains = String(res.settings?.cloudflare_email_domains || '');
+    cloudflareForm.value.cloudflare_admin_password = String(res.settings?.cloudflare_admin_password || '');
+    advancedForm.value.app_timezone = String(res.settings?.app_timezone || '');
   } finally {
     loading.value = false;
+  }
+}
+
+async function saveAdvanced() {
+  savingAdvanced.value = true;
+  try {
+    const patch = {
+      ...duckmailForm.value,
+      ...cloudflareForm.value,
+      ...advancedForm.value
+    };
+    const r = await settingsApi.update(patch);
+    if (r.success) {
+      message.success('已保存');
+      await loadSettings();
+    } else {
+      message.error(r.error || '保存失败');
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '保存失败');
+  } finally {
+    savingAdvanced.value = false;
   }
 }
 
@@ -229,7 +267,68 @@ onMounted(loadSettings);
       </n-tab-pane>
 
       <n-tab-pane name="advanced" tab="高级">
-        <n-empty description="转发、WebDAV 备份、临时邮箱、Cloudflare 等高级设置将在后续迭代中迁移" />
+        <n-alert type="info" :show-icon="false" class="mb-3">
+          这些高级设置主要服务于临时邮箱功能：DuckMail 私有域名 API、Cloudflare Temp Email Worker。
+          其他设置（转发、WebDAV）已经迁移到独立的菜单页。
+        </n-alert>
+
+        <n-divider title-placement="left">DuckMail</n-divider>
+        <n-form label-placement="left" label-width="180" class="max-w-800px">
+          <n-form-item label="Base URL">
+            <n-input
+              v-model:value="duckmailForm.duckmail_base_url"
+              placeholder="https://api.duckmail.sbs"
+            />
+          </n-form-item>
+          <n-form-item label="API Key">
+            <n-input
+              v-model:value="duckmailForm.duckmail_api_key"
+              type="password"
+              show-password-on="click"
+              placeholder="可选，访问私有域名需要"
+            />
+          </n-form-item>
+        </n-form>
+
+        <n-divider title-placement="left">Cloudflare Temp Email</n-divider>
+        <n-form label-placement="left" label-width="180" class="max-w-800px">
+          <n-form-item label="Worker 域名">
+            <n-input
+              v-model:value="cloudflareForm.cloudflare_worker_domain"
+              placeholder="如 mail.example.com（不带 https://）"
+            />
+          </n-form-item>
+          <n-form-item label="可用邮箱域名">
+            <n-input
+              v-model:value="cloudflareForm.cloudflare_email_domains"
+              placeholder="多个用英文逗号分隔，如 a.com, b.com"
+            />
+          </n-form-item>
+          <n-form-item label="Admin 密码">
+            <n-input
+              v-model:value="cloudflareForm.cloudflare_admin_password"
+              type="password"
+              show-password-on="click"
+              placeholder="用于全部邮件视图等管理端能力"
+            />
+          </n-form-item>
+        </n-form>
+
+        <n-divider title-placement="left">时区</n-divider>
+        <n-form label-placement="left" label-width="180" class="max-w-800px">
+          <n-form-item label="应用时区">
+            <n-input
+              v-model:value="advancedForm.app_timezone"
+              placeholder="如 Asia/Shanghai（影响 Cron 计算与日期显示）"
+            />
+          </n-form-item>
+        </n-form>
+
+        <div class="mt-4">
+          <n-button type="primary" :loading="savingAdvanced" @click="saveAdvanced">
+            保存高级设置
+          </n-button>
+        </div>
       </n-tab-pane>
     </n-tabs>
   </n-card>

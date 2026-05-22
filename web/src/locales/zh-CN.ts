@@ -14,6 +14,8 @@ export default {
     forwardingHistory: '转发历史',
     tags: '标签管理',
     projects: '项目',
+    auditLogs: '审计日志',
+    dockerUpdate: '在线更新',
     webdav: 'WebDAV 备份',
     settings: '系统设置'
   },

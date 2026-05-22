@@ -79,6 +79,18 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: 'menu.projects', icon: 'tabler:briefcase' }
       },
       {
+        path: 'audit-logs',
+        name: 'audit-logs',
+        component: () => import('@/views/audit-logs/index.vue'),
+        meta: { title: 'menu.auditLogs', icon: 'tabler:list-check' }
+      },
+      {
+        path: 'docker-update',
+        name: 'docker-update',
+        component: () => import('@/views/docker-update/index.vue'),
+        meta: { title: 'menu.dockerUpdate', icon: 'tabler:cloud-download' }
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/settings/index.vue'),

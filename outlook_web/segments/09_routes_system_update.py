@@ -687,6 +687,64 @@ def start_docker_update_job(config: Dict[str, Any]) -> Tuple[bool, str]:
     return True, 'Docker update task queued'
 
 
+@app.route('/api/audit-logs', methods=['GET'])
+@login_required
+def api_get_audit_logs():
+    """读取审计日志，支持 action / resource_type / 关键字过滤和分页。"""
+    try:
+        page = max(1, int(request.args.get('page', 1) or 1))
+        per_page = min(200, max(1, int(request.args.get('per_page', 50) or 50)))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'page/per_page 参数无效'}), 400
+
+    action = (request.args.get('action', '') or '').strip()
+    resource_type = (request.args.get('resource_type', '') or '').strip()
+    keyword = (request.args.get('keyword', '') or '').strip()
+
+    where = ['1=1']
+    params: list = []
+    if action:
+        where.append('action = ?')
+        params.append(action)
+    if resource_type:
+        where.append('resource_type = ?')
+        params.append(resource_type)
+    if keyword:
+        where.append('(details LIKE ? OR resource_id LIKE ? OR user_ip LIKE ?)')
+        like = f'%{keyword}%'
+        params.extend([like, like, like])
+    where_sql = ' AND '.join(where)
+
+    db = get_db()
+    total = db.execute(
+        f'SELECT COUNT(*) AS cnt FROM audit_logs WHERE {where_sql}', params
+    ).fetchone()['cnt']
+    rows = db.execute(
+        f'''SELECT id, action, resource_type, resource_id, user_ip, details, created_at
+            FROM audit_logs WHERE {where_sql}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?''',
+        params + [per_page, (page - 1) * per_page]
+    ).fetchall()
+
+    distinct_actions = [r[0] for r in db.execute(
+        'SELECT DISTINCT action FROM audit_logs ORDER BY action'
+    ).fetchall()]
+    distinct_types = [r[0] for r in db.execute(
+        'SELECT DISTINCT resource_type FROM audit_logs ORDER BY resource_type'
+    ).fetchall()]
+
+    return jsonify({
+        'success': True,
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'logs': [dict(r) for r in rows],
+        'distinct_actions': distinct_actions,
+        'distinct_resource_types': distinct_types,
+    })
+
+
 @app.route('/api/docker-update/status', methods=['GET'])
 @login_required
 def api_get_docker_update_status():
