@@ -1,4 +1,5 @@
 import { http } from '@/service/request';
+import type { Tag } from './tags';
 
 export interface Account {
   id: number;
@@ -8,8 +9,14 @@ export interface Account {
   account_type: string;
   provider: string;
   group_id: number | null;
+  group_name?: string;
+  group_color?: string;
   imap_host?: string | null;
   imap_password?: string | null;
+  forward_enabled?: boolean;
+  tags?: Tag[];
+  last_refresh_at?: string | null;
+  last_refresh_status?: string | null;
 }
 
 export interface Group {

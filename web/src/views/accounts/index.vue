@@ -3,6 +3,7 @@ import { ref, computed, onMounted, h } from 'vue';
 import { useMessage, useDialog, NTag, NButton, NSpace } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { accountsApi, type Account, type Group } from '@/service/api/accounts';
+import { tagsApi, type Tag } from '@/service/api/tags';
 import { Icon } from '@iconify/vue';
 import AccountImportDialog from '@/components/AccountImportDialog.vue';
 import AccountEditDrawer from '@/components/AccountEditDrawer.vue';
@@ -25,6 +26,11 @@ const showImport = ref(false);
 const showExport = ref(false);
 const showEdit = ref(false);
 const editAccountId = ref<number | null>(null);
+const tags = ref<Tag[]>([]);
+const acting = ref(false);
+
+// 批量操作：选择标签 / 分组
+const tagOpts = computed(() => tags.value.map(t => ({ label: t.name, value: t.id })));
 
 const TYPE_COLOR: Record<string, string> = {
   outlook: 'info',
@@ -40,8 +46,64 @@ const groupLabel = computed(() => {
 });
 
 async function loadGroups() {
-  const r = await accountsApi.listGroups();
-  groups.value = r.groups || [];
+  const [g, t] = await Promise.all([accountsApi.listGroups(), tagsApi.list()]);
+  groups.value = g.groups || [];
+  tags.value = t.tags || [];
+}
+
+async function batchTagAction(tagId: number, action: 'add' | 'remove') {
+  if (!checked.value.length || !tagId) return;
+  acting.value = true;
+  try {
+    const r = await tagsApi.batchApply(checked.value, tagId, action);
+    if (r.success) {
+      message.success(r.message || (action === 'add' ? '已打标签' : '已移除标签'));
+      await loadAccounts();
+    } else {
+      message.error(r.error || '操作失败');
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '操作失败');
+  } finally {
+    acting.value = false;
+  }
+}
+
+async function batchMoveGroup(groupId: number) {
+  if (!checked.value.length || !groupId) return;
+  acting.value = true;
+  try {
+    const r = await tagsApi.batchUpdateGroup(checked.value, groupId);
+    if (r.success) {
+      message.success(r.message || '已移动');
+      checked.value = [];
+      await loadAccounts();
+    } else {
+      message.error(r.error || '移动失败');
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '移动失败');
+  } finally {
+    acting.value = false;
+  }
+}
+
+async function batchToggleForwarding(enabled: boolean) {
+  if (!checked.value.length) return;
+  acting.value = true;
+  try {
+    const r = await tagsApi.batchUpdateForwarding(checked.value, enabled);
+    if (r.success) {
+      message.success(r.message || (enabled ? '已开启转发' : '已关闭转发'));
+      await loadAccounts();
+    } else {
+      message.error(r.error || '操作失败');
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '操作失败');
+  } finally {
+    acting.value = false;
+  }
 }
 
 async function loadAccounts() {
@@ -107,6 +169,31 @@ const columns: DataTableColumns<Account> = [
         },
         { default: () => row.status }
       )
+  },
+  {
+    title: '标签',
+    key: 'tags',
+    width: 220,
+    render: row => {
+      const list = (row.tags || []) as Tag[];
+      if (!list.length) return h('span', { class: 'op-40 text-12px' }, '—');
+      return h(
+        'div',
+        { class: 'flex flex-wrap gap-1' },
+        list.map(t =>
+          h(
+            NTag,
+            {
+              size: 'small',
+              bordered: false,
+              color: { color: t.color, textColor: '#fff' },
+              round: true
+            },
+            { default: () => t.name }
+          )
+        )
+      );
+    }
   },
   { title: '备注', key: 'remark', ellipsis: { tooltip: true } },
   {
@@ -241,15 +328,57 @@ onMounted(async () => {
       <n-button @click="loadAccounts">
         <Icon icon="tabler:search" /> <span class="ml-1">查询</span>
       </n-button>
-      <n-button
-        type="error"
-        :disabled="!checked.length"
-        @click="batchDelete"
-      >
-        <Icon icon="tabler:trash" />
-        <span class="ml-1">批量删除 ({{ checked.length }})</span>
-      </n-button>
     </n-space>
+
+    <n-card
+      v-if="checked.length"
+      size="small"
+      class="mb-3"
+      :bordered="false"
+      style="background: rgba(100,108,255,0.06);"
+    >
+      <n-space :wrap-item="false" align="center">
+        <span class="text-13px">
+          已选 <b>{{ checked.length }}</b> 个：
+        </span>
+        <n-select
+          placeholder="打标签"
+          size="small"
+          style="width: 140px;"
+          :options="tagOpts"
+          :value="null"
+          @update:value="(v: number) => batchTagAction(v, 'add')"
+        />
+        <n-select
+          placeholder="移除标签"
+          size="small"
+          style="width: 140px;"
+          :options="tagOpts"
+          :value="null"
+          @update:value="(v: number) => batchTagAction(v, 'remove')"
+        />
+        <n-select
+          placeholder="移动到分组"
+          size="small"
+          style="width: 160px;"
+          :options="groups.filter(g => g.name !== '临时邮箱').map(g => ({ label: g.name, value: g.id }))"
+          :value="null"
+          @update:value="batchMoveGroup"
+        />
+        <n-button size="small" :loading="acting" @click="batchToggleForwarding(true)">
+          <Icon icon="tabler:bell-ringing" />
+          <span class="ml-1">开启转发</span>
+        </n-button>
+        <n-button size="small" :loading="acting" @click="batchToggleForwarding(false)">
+          <Icon icon="tabler:bell-off" />
+          <span class="ml-1">关闭转发</span>
+        </n-button>
+        <n-button size="small" type="error" :loading="acting" @click="batchDelete">
+          <Icon icon="tabler:trash" />
+          <span class="ml-1">删除</span>
+        </n-button>
+      </n-space>
+    </n-card>
 
     <n-data-table
       remote

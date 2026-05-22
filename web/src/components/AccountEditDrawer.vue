@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { useMessage } from 'naive-ui';
 import { Icon } from '@iconify/vue';
 import { accountsApi, type Group } from '@/service/api/accounts';
+import { tagsApi, type Tag } from '@/service/api/tags';
 
 const props = defineProps<{ show: boolean; accountId: number | null }>();
 const emit = defineEmits<{
@@ -15,9 +16,17 @@ const loading = ref(false);
 const saving = ref(false);
 
 const groups = ref<Group[]>([]);
+const allTags = ref<Tag[]>([]);
+const accountTagIds = ref<number[]>([]);
 const detail = ref<any>(null);
 const aliasesText = ref('');
 const savingAliases = ref(false);
+const savingTags = ref(false);
+
+const tagOptions = computed(() => allTags.value.map(t => ({ label: t.name, value: t.id })));
+const accountTags = computed(() =>
+  allTags.value.filter(t => accountTagIds.value.includes(t.id))
+);
 
 const form = ref({
   email: '',
@@ -45,11 +54,13 @@ async function loadAll() {
   if (!props.accountId) return;
   loading.value = true;
   try {
-    const [g, a] = await Promise.all([
+    const [g, a, t] = await Promise.all([
       accountsApi.listGroups(),
-      accountsApi.getAccount(props.accountId)
+      accountsApi.getAccount(props.accountId),
+      tagsApi.list()
     ]);
     groups.value = g.groups || [];
+    allTags.value = t.tags || [];
     if (a.success && a.account) {
       detail.value = a.account;
       form.value = {
@@ -65,9 +76,33 @@ async function loadAll() {
         imap_password: a.account.imap_password || ''
       };
       aliasesText.value = (a.account.aliases || []).join('\n');
+      accountTagIds.value = (a.account.tags || []).map((tag: Tag) => tag.id);
     }
   } finally {
     loading.value = false;
+  }
+}
+
+async function syncTags(nextIds: number[]) {
+  if (!props.accountId) return;
+  const prev = new Set(accountTagIds.value);
+  const next = new Set(nextIds);
+  const toAdd = nextIds.filter(id => !prev.has(id));
+  const toRemove = accountTagIds.value.filter(id => !next.has(id));
+  if (!toAdd.length && !toRemove.length) return;
+  savingTags.value = true;
+  try {
+    await Promise.all([
+      ...toAdd.map(id => tagsApi.batchApply([props.accountId!], id, 'add')),
+      ...toRemove.map(id => tagsApi.batchApply([props.accountId!], id, 'remove'))
+    ]);
+    accountTagIds.value = nextIds;
+    message.success('标签已更新');
+    emit('saved');
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '更新失败');
+  } finally {
+    savingTags.value = false;
   }
 }
 
@@ -207,6 +242,31 @@ async function saveAliases() {
                 />
               </n-form-item>
             </n-form>
+          </n-card>
+
+          <n-card size="small" class="mb-3" title="标签">
+            <n-select
+              multiple
+              filterable
+              tag
+              :options="tagOptions"
+              :value="accountTagIds"
+              :loading="savingTags"
+              placeholder="选择已有标签或输入回车新增（仅过滤）"
+              @update:value="syncTags"
+            />
+            <div v-if="accountTags.length" class="mt-2 flex flex-wrap gap-1">
+              <n-tag
+                v-for="t in accountTags"
+                :key="t.id"
+                size="small"
+                round
+                :bordered="false"
+                :color="{ color: t.color, textColor: '#fff' }"
+              >
+                {{ t.name }}
+              </n-tag>
+            </div>
           </n-card>
 
           <n-card size="small" class="mb-3">

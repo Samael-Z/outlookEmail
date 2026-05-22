@@ -25,6 +25,19 @@ export const tempEmailsApi = {
       url: '/api/temp-emails'
     });
   },
+  batchDelete(temp_email_ids: number[]) {
+    return http<{
+      success: boolean;
+      message?: string;
+      deleted_emails?: Array<{ id: number; email: string }>;
+      missing_ids?: number[];
+      error?: string;
+    }>({
+      method: 'POST',
+      url: '/api/temp-emails/batch-delete',
+      data: { temp_email_ids }
+    });
+  },
   generate(payload: {
     provider: 'gptmail' | 'duckmail' | 'cloudflare';
     prefix?: string;

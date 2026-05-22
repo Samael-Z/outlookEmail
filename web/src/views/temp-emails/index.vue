@@ -31,6 +31,56 @@ const duckmailDomains = ref<Array<{ value: string; label: string }>>([]);
 const cloudflareDomains = ref<Array<{ value: string; label: string }>>([]);
 
 const filtered = computed(() => all.value.filter(e => e.provider === tab.value));
+const checked = ref<number[]>([]);
+const batchDeleting = ref(false);
+
+function toggleCheck(id: number) {
+  const idx = checked.value.indexOf(id);
+  if (idx >= 0) checked.value.splice(idx, 1);
+  else checked.value.push(id);
+}
+
+function selectAllCurrent() {
+  if (filtered.value.every(e => checked.value.includes(e.id))) {
+    checked.value = checked.value.filter(id => !filtered.value.some(e => e.id === id));
+  } else {
+    const ids = filtered.value.map(e => e.id);
+    const set = new Set([...checked.value, ...ids]);
+    checked.value = Array.from(set);
+  }
+}
+
+function batchDelete() {
+  if (!checked.value.length) return;
+  dialog.warning({
+    title: '批量删除',
+    content: `确认删除选中的 ${checked.value.length} 个临时邮箱？提供商端的对应账户/地址也会一并清理。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      batchDeleting.value = true;
+      try {
+        const r = await tempEmailsApi.batchDelete(checked.value);
+        if (r.success) {
+          message.success(r.message || `已删除 ${r.deleted_emails?.length || 0} 个`);
+          checked.value = [];
+          if (selected.value && !all.value.find(e => e.id === selected.value!.id)) {
+            selected.value = null;
+            messages.value = [];
+            detail.value = null;
+          }
+          await load();
+        } else {
+          message.error(r.error || '删除失败');
+        }
+      } catch (e: any) {
+        message.error(e?.response?.data?.error || '删除失败');
+      } finally {
+        batchDeleting.value = false;
+      }
+    }
+  });
+}
 
 async function load() {
   loading.value = true;
@@ -186,10 +236,33 @@ onMounted(load);
         </n-tabs>
       </template>
       <template #header-extra>
-        <n-button type="primary" size="small" @click="openGenerate">
-          <Icon icon="tabler:plus" />
-          <span class="ml-1">生成</span>
-        </n-button>
+        <n-space>
+          <n-button
+            v-if="filtered.length"
+            size="small"
+            @click="selectAllCurrent"
+          >
+            {{
+              filtered.every(e => checked.includes(e.id))
+                ? '清空当前'
+                : '全选当前'
+            }}
+          </n-button>
+          <n-button
+            v-if="checked.length"
+            size="small"
+            type="error"
+            :loading="batchDeleting"
+            @click="batchDelete"
+          >
+            <Icon icon="tabler:trash" />
+            <span class="ml-1">批量删除 ({{ checked.length }})</span>
+          </n-button>
+          <n-button type="primary" size="small" @click="openGenerate">
+            <Icon icon="tabler:plus" />
+            <span class="ml-1">生成</span>
+          </n-button>
+        </n-space>
       </template>
 
       <div class="flex-1 flex" style="overflow: hidden;">
@@ -204,6 +277,12 @@ onMounted(load);
                 :style="{ background: selected?.id === e.id ? 'rgba(100,108,255,0.1)' : '' }"
               >
                 <div class="flex-y-center justify-between">
+                  <n-checkbox
+                    :checked="checked.includes(e.id)"
+                    class="mr-2"
+                    @click.stop
+                    @update:checked="() => toggleCheck(e.id)"
+                  />
                   <div class="flex-1 min-w-0">
                     <div class="text-13px truncate">{{ e.email }}</div>
                     <div class="text-11px op-60">{{ e.created_at }}</div>
