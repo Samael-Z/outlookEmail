@@ -346,7 +346,152 @@ def api_internal_eml_domains():
     return jsonify({
         'success': True,
         'domains': domains,
+        'default_key': get_internal_eml_default_key(),
         'default_key_present': bool(get_internal_eml_default_key()),
+    })
+
+
+@app.route('/api/internal-eml/accounts', methods=['POST'])
+@login_required
+def api_internal_eml_create_account():
+    """创建一个内网 EML 邮箱账号。
+
+    body: { email, api_key?, base_url?, group_id?, remark? }
+    """
+    data = request.get_json(silent=True) or {}
+    email_addr = (data.get('email') or '').strip()
+    if not email_addr or '@' not in email_addr:
+        return jsonify({'success': False, 'error': '邮箱地址不能为空且必须包含 @'}), 400
+
+    domain = _domain_from_email(email_addr)
+    base_url = (data.get('base_url') or '').strip()
+    if not base_url:
+        base_url = get_internal_eml_baseurl_for_domain(domain) or ''
+    if not base_url:
+        return jsonify({
+            'success': False,
+            'error': f'域名 {domain} 没有内置 baseURL，请显式提供 base_url 或配置环境变量'
+        }), 400
+
+    api_key = (data.get('api_key') or '').strip() or get_internal_eml_default_key()
+    group_id = data.get('group_id')
+    try:
+        group_id = int(group_id) if group_id is not None else None
+    except (TypeError, ValueError):
+        group_id = None
+    if group_id is None:
+        # 默认放到第一个非临时邮箱分组
+        conn = get_db()
+        row = conn.execute(
+            "SELECT id FROM groups WHERE name != '临时邮箱' ORDER BY sort_order, id LIMIT 1"
+        ).fetchone()
+        group_id = row['id'] if row else 1
+
+    remark = (data.get('remark') or '').strip()[:500]
+
+    conn = sqlite3.connect(DATABASE)
+    try:
+        cur = conn.cursor()
+        # 检查重复
+        existing = cur.execute('SELECT id FROM accounts WHERE email = ?', (email_addr,)).fetchone()
+        if existing:
+            return jsonify({'success': False, 'error': f'邮箱 {email_addr} 已存在'}), 409
+        cur.execute('''
+            INSERT INTO accounts
+            (email, password, client_id, refresh_token, group_id, sort_order, remark,
+             status, account_type, provider, imap_host, imap_port, imap_password,
+             forward_enabled, created_at, updated_at)
+            VALUES (?, '', '', '', ?, 0, ?, 'active', 'internal_eml', 'internal_eml',
+                    ?, 0, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ''', (email_addr, group_id, remark, base_url, api_key))
+        account_id = cur.lastrowid
+        conn.commit()
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'创建失败: {exc}'}), 500
+    finally:
+        conn.close()
+
+    return jsonify({
+        'success': True,
+        'account': {
+            'id': account_id,
+            'email': email_addr,
+            'account_type': 'internal_eml',
+            'provider': 'internal_eml',
+            'imap_host': base_url,
+            'group_id': group_id,
+            'remark': remark,
+        },
+    })
+
+
+@app.route('/api/internal-eml/accounts/bulk', methods=['POST'])
+@login_required
+def api_internal_eml_bulk_create():
+    """批量创建内网 EML 账号。
+
+    body: { items: [{ email, api_key?, base_url? }, ...], group_id?, remark? }
+    返回每行的创建结果，跳过已存在的邮箱。
+    """
+    data = request.get_json(silent=True) or {}
+    items = data.get('items') or []
+    if not isinstance(items, list) or not items:
+        return jsonify({'success': False, 'error': '请提供至少一个账号'}), 400
+
+    group_id = data.get('group_id')
+    remark = (data.get('remark') or '').strip()[:500]
+
+    created: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        email_addr = (raw.get('email') or '').strip()
+        if not email_addr or '@' not in email_addr:
+            skipped.append({'email': email_addr, 'reason': '邮箱无效'})
+            continue
+        domain = _domain_from_email(email_addr)
+        base_url = (raw.get('base_url') or '').strip() or get_internal_eml_baseurl_for_domain(domain) or ''
+        if not base_url:
+            skipped.append({'email': email_addr, 'reason': f'域名 {domain} 无法解析 baseURL'})
+            continue
+        api_key = (raw.get('api_key') or '').strip() or get_internal_eml_default_key()
+
+        conn = sqlite3.connect(DATABASE)
+        try:
+            cur = conn.cursor()
+            existing = cur.execute('SELECT id FROM accounts WHERE email = ?', (email_addr,)).fetchone()
+            if existing:
+                skipped.append({'email': email_addr, 'reason': '已存在'})
+                continue
+            actual_group_id = group_id
+            if actual_group_id is None:
+                row = cur.execute(
+                    "SELECT id FROM groups WHERE name != '临时邮箱' ORDER BY sort_order, id LIMIT 1"
+                ).fetchone()
+                actual_group_id = row[0] if row else 1
+            cur.execute('''
+                INSERT INTO accounts
+                (email, password, client_id, refresh_token, group_id, sort_order, remark,
+                 status, account_type, provider, imap_host, imap_port, imap_password,
+                 forward_enabled, created_at, updated_at)
+                VALUES (?, '', '', '', ?, 0, ?, 'active', 'internal_eml', 'internal_eml',
+                        ?, 0, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''', (email_addr, actual_group_id, remark, base_url, api_key))
+            created.append({'id': cur.lastrowid, 'email': email_addr, 'base_url': base_url})
+            conn.commit()
+        except Exception as exc:
+            skipped.append({'email': email_addr, 'reason': str(exc)})
+        finally:
+            conn.close()
+
+    return jsonify({
+        'success': True,
+        'created_count': len(created),
+        'skipped_count': len(skipped),
+        'created': created,
+        'skipped': skipped,
     })
 
 

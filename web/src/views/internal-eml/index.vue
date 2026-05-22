@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useMessage } from 'naive-ui';
+import { useMessage, useDialog } from 'naive-ui';
 import { accountsApi, type Account } from '@/service/api/accounts';
 import {
   internalEmlApi,
@@ -8,8 +8,11 @@ import {
   type InternalEmlMessageDetail
 } from '@/service/api/internal-eml';
 import { Icon } from '@iconify/vue';
+import InternalEmlImportDialog from '@/components/InternalEmlImportDialog.vue';
 
 const message = useMessage();
+const dialog = useDialog();
+const showImport = ref(false);
 
 const accounts = ref<Account[]>([]);
 const selectedAccountId = ref<number | null>(null);
@@ -92,6 +95,33 @@ async function deleteMessage(id: number) {
   await loadMessages();
 }
 
+async function deleteAccount(account: Account) {
+  dialog.warning({
+    title: '确认删除',
+    content: `确定删除内网邮箱账号「${account.email}」及其所有本地邮件吗？`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await accountsApi.deleteAccount(account.id);
+        message.success('账号已删除');
+        if (selectedAccountId.value === account.id) {
+          selectedAccountId.value = null;
+          messages.value = [];
+          detail.value = null;
+        }
+        await loadAccounts();
+      } catch (e: any) {
+        message.error(e?.response?.data?.error || '删除失败');
+      }
+    }
+  });
+}
+
+function onAccountCreated() {
+  loadAccounts();
+}
+
 function attachmentUrl(idx: number) {
   if (!selectedAccountId.value || !detail.value) return '#';
   return internalEmlApi.attachmentUrl(selectedAccountId.value, detail.value.id, idx);
@@ -104,8 +134,22 @@ onMounted(loadAccounts);
   <div class="wh-full" style="height: calc(100vh - 50px - 40px - 32px);">
     <n-split direction="horizontal" :default-size="0.18" :min="0.12" :max="0.3">
       <template #1>
-        <n-card content-style="padding: 0;" class="h-full" :title="`内网邮箱 (${accounts.length})`">
-          <n-empty v-if="!accounts.length" description="无内网邮箱账号" class="mt-12" />
+        <n-card content-style="padding: 0;" class="h-full">
+          <template #header>
+            <span>内网邮箱 ({{ accounts.length }})</span>
+          </template>
+          <template #header-extra>
+            <n-button size="small" type="primary" @click="showImport = true">
+              <Icon icon="tabler:plus" /> <span class="ml-1">添加</span>
+            </n-button>
+          </template>
+          <n-empty v-if="!accounts.length" description="无内网邮箱账号" class="mt-12">
+            <template #extra>
+              <n-button size="small" type="primary" @click="showImport = true">
+                立即添加
+              </n-button>
+            </template>
+          </n-empty>
           <n-list v-else hoverable clickable>
             <n-list-item
               v-for="a in accounts"
@@ -113,8 +157,21 @@ onMounted(loadAccounts);
               @click="selectAccount(a.id)"
               :style="{ background: selectedAccountId === a.id ? 'rgba(100,108,255,0.1)' : '' }"
             >
-              <div class="text-13px">{{ a.email }}</div>
-              <div class="text-11px op-60">{{ a.imap_host || '默认 baseURL' }}</div>
+              <div class="flex-y-center justify-between">
+                <div class="flex-1 min-w-0">
+                  <div class="text-13px truncate">{{ a.email }}</div>
+                  <div class="text-11px op-60 truncate">{{ a.imap_host || '默认 baseURL' }}</div>
+                </div>
+                <n-button
+                  text
+                  type="error"
+                  size="tiny"
+                  @click.stop="deleteAccount(a)"
+                  class="ml-2"
+                >
+                  <Icon icon="tabler:trash" />
+                </n-button>
+              </div>
             </n-list-item>
           </n-list>
         </n-card>
@@ -220,6 +277,8 @@ onMounted(loadAccounts);
         </n-split>
       </template>
     </n-split>
+
+    <InternalEmlImportDialog v-model:show="showImport" @created="onAccountCreated" />
   </div>
 </template>
 

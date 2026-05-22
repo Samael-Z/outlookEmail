@@ -23,11 +23,64 @@ export interface InternalEmlMessageDetail extends InternalEmlMessage {
   attachments: InternalEmlAttachment[];
 }
 
+export interface DomainsConfig {
+  success: boolean;
+  domains: Record<string, string>;
+  default_key: string;
+  default_key_present: boolean;
+}
+
+export interface CreateAccountPayload {
+  email: string;
+  api_key?: string;
+  base_url?: string;
+  group_id?: number;
+  remark?: string;
+}
+
+export interface BulkCreateItem {
+  email: string;
+  api_key?: string;
+  base_url?: string;
+}
+
 export const internalEmlApi = {
   getDomains() {
-    return http<{ success: boolean; domains: Record<string, string>; default_key_present: boolean }>({
+    return http<DomainsConfig>({
       method: 'GET',
       url: '/api/internal-eml/config/domains'
+    });
+  },
+  createAccount(payload: CreateAccountPayload) {
+    return http<{
+      success: boolean;
+      error?: string;
+      account?: {
+        id: number;
+        email: string;
+        account_type: string;
+        provider: string;
+        imap_host: string;
+        group_id: number;
+        remark: string;
+      };
+    }>({
+      method: 'POST',
+      url: '/api/internal-eml/accounts',
+      data: payload
+    });
+  },
+  bulkCreate(items: BulkCreateItem[], group_id?: number, remark?: string) {
+    return http<{
+      success: boolean;
+      created_count: number;
+      skipped_count: number;
+      created: Array<{ id: number; email: string; base_url: string }>;
+      skipped: Array<{ email: string; reason: string }>;
+    }>({
+      method: 'POST',
+      url: '/api/internal-eml/accounts/bulk',
+      data: { items, group_id, remark }
     });
   },
   refresh(accountId: number) {
