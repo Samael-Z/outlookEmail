@@ -4,7 +4,7 @@ import { useMessage, useDialog, NTag, NButton, NSpace } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import { accountsApi, type Account, type Group } from '@/service/api/accounts';
 import { Icon } from '@iconify/vue';
-import InternalEmlImportDialog from '@/components/InternalEmlImportDialog.vue';
+import AccountImportDialog from '@/components/AccountImportDialog.vue';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -182,7 +182,7 @@ onMounted(async () => {
           <Icon icon="tabler:refresh" /> <span class="ml-1">刷新</span>
         </n-button>
         <n-button type="primary" @click="showImport = true">
-          <Icon icon="tabler:plus" /> <span class="ml-1">添加内网邮箱</span>
+          <Icon icon="tabler:plus" /> <span class="ml-1">添加账号</span>
         </n-button>
       </n-space>
     </template>
@@ -241,6 +241,6 @@ onMounted(async () => {
       @update:checked-row-keys="onSelect"
     />
 
-    <InternalEmlImportDialog v-model:show="showImport" @created="loadAccounts" />
+    <AccountImportDialog v-model:show="showImport" @imported="loadAccounts" />
   </n-card>
 </template>

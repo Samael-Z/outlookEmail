@@ -43,6 +43,12 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: 'menu.tempEmails', icon: 'tabler:mail-fast' }
       },
       {
+        path: 'refresh',
+        name: 'refresh',
+        component: () => import('@/views/refresh/index.vue'),
+        meta: { title: 'menu.refresh', icon: 'tabler:refresh' }
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/settings/index.vue'),

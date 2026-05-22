@@ -70,6 +70,35 @@ export const accountsApi = {
       data: body
     });
   },
+  /**
+   * 批量导入账号（Outlook OAuth / IMAP）。
+   * - provider: outlook / gmail / qq / 163 / 126 / yahoo / aliyun / custom
+   * - account_format: client_id_refresh_token | refresh_token_client_id
+   *   (仅 outlook 用)
+   * - imap_host/imap_port: 仅 provider=custom 时生效（每行格式 email----pwd 时使用）
+   */
+  bulkImport(body: {
+    account_string: string;
+    provider: string;
+    group_id?: number;
+    account_format?: string;
+    imap_host?: string;
+    imap_port?: number;
+    remark?: string;
+  }) {
+    return http<{
+      success: boolean;
+      message?: string;
+      added_count?: number;
+      skipped_count?: number;
+      invalid_count?: number;
+      error?: string;
+    }>({
+      method: 'POST',
+      url: '/api/accounts',
+      data: body
+    });
+  },
   deleteAccount(id: number) {
     return http<{ success: boolean; error?: string }>({
       method: 'DELETE',
