@@ -1451,7 +1451,8 @@ class AssetRenderingTests(unittest.TestCase):
         self.app.config['TESTING'] = True
         self.client = self.app.test_client()
 
-    def test_index_uses_bundled_stylesheet_route(self):
+    def test_index_serves_spa_or_template(self):
+        """重构后 / 返回 Vue SPA（web/dist 存在）或回退到旧 Jinja 模板。"""
         with self.client.session_transaction() as session:
             session['logged_in'] = True
 
@@ -1459,19 +1460,30 @@ class AssetRenderingTests(unittest.TestCase):
         html = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('href="/assets/index.css"', html)
-        self.assertNotIn('href="/static/index.css"', html)
+        self.assertEqual(response.mimetype, 'text/html')
+        # SPA dist 含 <div id="app">；旧 Jinja 模板含 <body>，二者择一即可
+        self.assertTrue(
+            '<div id="app">' in html or '<body' in html,
+            f'response is neither SPA nor fallback template: {html[:200]}'
+        )
 
-    def test_bundled_stylesheet_contains_combined_css_without_imports(self):
-        response = self.client.get('/assets/index.css')
-        css = response.get_data(as_text=True)
+    def test_unknown_path_falls_through_to_spa(self):
+        """非 /api/* 的未知路径被 catch-all 路由命中，返回 SPA index.html。"""
+        with self.client.session_transaction() as session:
+            session['logged_in'] = True
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.mimetype, 'text/css')
-        self.assertNotIn('@import', css)
-        self.assertIn('.toast', css)
-        self.assertIn('.group-panel', css)
-        self.assertIn('.account-panel', css)
+        from outlook_web.segments import (  # type: ignore[attr-defined]
+            __init__,  # noqa: F401
+        )
+        # 当 SPA 未构建时 catch-all 返回 404，否则返回 HTML
+        response = self.client.get('/some/spa/route')
+        if web_outlook_app.has_spa_build():
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.mimetype, 'text/html')
+            self.assertIn('<div id="app">', response.get_data(as_text=True))
+        else:
+            # 没有构建产物时 fallback 不接管 SPA 路径，返回 404 也是预期
+            self.assertEqual(response.status_code, 404)
 
 
 class RefreshTokenProxyFallbackTests(unittest.TestCase):

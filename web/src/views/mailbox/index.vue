@@ -5,6 +5,7 @@ import { Icon } from '@iconify/vue';
 import { accountsApi, type Group, type Account } from '@/service/api/accounts';
 import { emailsApi, type EmailListItem, type Folder } from '@/service/api/emails';
 import GroupManageDrawer from '@/components/GroupManageDrawer.vue';
+import { sanitizeEmailHtml } from '@/utils/sanitize';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -137,18 +138,18 @@ function batchDelete() {
     negativeText: '取消',
     onPositiveClick: async () => {
       acting.value = true;
+      // 在清空 checked 之前先记录"当前展开的邮件是否在删除集合里"，否则后面判断永远是 false。
+      const deletedIds = checked.value.map(String);
+      const detailWasDeleted = !!(detail.value && deletedIds.includes(String(detail.value.id)));
       try {
-        const r = await emailsApi.deleteMany(
-          selectedAccount.value!.email,
-          checked.value.map(String)
-        );
+        const r = await emailsApi.deleteMany(selectedAccount.value!.email, deletedIds);
         if (r.success) {
-          message.success(`已删除 ${r.success_count || checked.value.length} 封`);
-          await loadEmails();
+          message.success(`已删除 ${r.success_count || deletedIds.length} 封`);
           checked.value = [];
-          if (detail.value && checked.value.includes(String(detail.value.id))) {
+          if (detailWasDeleted) {
             detail.value = null;
           }
+          await loadEmails();
         } else {
           message.error(typeof r.error === 'string' ? r.error : '删除失败');
         }
@@ -382,7 +383,7 @@ onMounted(loadGroups);
                     <n-divider />
                     <div
                       v-if="detail.body?.content || detail.html || detail.body_html"
-                      v-html="detail.body?.content || detail.html || detail.body_html"
+                      v-html="sanitizeEmailHtml(detail.body?.content || detail.html || detail.body_html)"
                       class="email-html"
                     />
                     <pre v-else class="whitespace-pre-wrap text-13px">{{ detail.text || detail.body_text || '' }}</pre>

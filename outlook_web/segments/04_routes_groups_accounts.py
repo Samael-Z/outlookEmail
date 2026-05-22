@@ -1190,6 +1190,7 @@ def api_update_account(account_id):
 
     provider_meta = get_provider_meta(provider, email_addr)
     is_outlook = (account_type == 'outlook') or provider_meta['key'] == 'outlook'
+    is_internal_eml = account_type == 'internal_eml' or provider == 'internal_eml'
     if is_outlook:
         if not email_addr or not client_id or not refresh_token:
             return jsonify({'success': False, 'error': '邮箱、Client ID 和 Refresh Token 不能为空'})
@@ -1198,6 +1199,16 @@ def api_update_account(account_id):
         imap_host = IMAP_SERVER_NEW
         imap_port = IMAP_PORT
         imap_password = ''
+    elif is_internal_eml:
+        # 内网 EML：保留 account_type/provider；imap_host 存 baseURL，imap_password 存 api_key
+        if not email_addr:
+            return jsonify({'success': False, 'error': '邮箱不能为空'})
+        client_id = ''
+        refresh_token = ''
+        account_type = 'internal_eml'
+        provider = 'internal_eml'
+        imap_port = 0
+        # imap_host / imap_password 保留前端提交的值；为空时由 _build_client_for_account 兜底
     else:
         if not email_addr or not imap_password:
             return jsonify({'success': False, 'error': '邮箱和 IMAP 密码不能为空'})

@@ -404,8 +404,11 @@ def process_forwarding_job():
                 safe_console_print('[forward] skip job: no active channels configured')
                 return
 
+            # 内网 EML 账号有独立的拉取链路（segment 10），不走标准 IMAP/Graph 转发；
+            # 这里显式排除，避免空的 client_id/refresh_token 被送进 Graph API 引发刷屏失败日志。
             accounts = conn.execute(
-                "SELECT * FROM accounts WHERE status = 'active' AND forward_enabled = 1"
+                "SELECT * FROM accounts WHERE status = 'active' AND forward_enabled = 1 "
+                "AND account_type != 'internal_eml'"
             ).fetchall()
             safe_console_print(
                 f"[forward] start job: accounts={len(accounts)} email_enabled={email_enabled} telegram_enabled={telegram_enabled} wecom_enabled={wecom_enabled} account_delay_seconds={account_delay_seconds}"
@@ -1508,7 +1511,21 @@ def bad_request(error):
 
 @app.errorhandler(Exception)
 def handle_exception(error):
-    """处理未捕获的异常"""
+    """处理未捕获的异常。
+
+    HTTPException 子类（如 NotFound/Forbidden/MethodNotAllowed）必须保留原始
+    状态码 —— 否则任何 abort(404) 都会被错误地转成 500（例如 SPA catch-all
+    对 /api/<unknown> 调 abort(404) 时）。
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(error, HTTPException):
+        status_code = error.code or 500
+        description = error.description or error.name
+        return jsonify({
+            'success': False,
+            'error': str(description),
+        }), status_code
+
     safe_console_print(f"Unhandled exception: {error}")
     import traceback
     traceback.print_exc()

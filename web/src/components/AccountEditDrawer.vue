@@ -127,8 +127,25 @@ async function save() {
       body.imap_port = form.value.imap_port;
       body.imap_password = form.value.imap_password;
     }
+    // 把 aliases textarea 的当前内容一并提交，避免用户在主表单与别名表单
+    // 之间切换时丢失编辑（旧版本只有点击"保存别名"才会持久化）。
+    const aliasList = aliasesText.value
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const originalAliases = (detail.value?.aliases || []) as string[];
+    const aliasesChanged =
+      aliasList.length !== originalAliases.length ||
+      aliasList.some((a, i) => a !== originalAliases[i]);
+    if (aliasesChanged) {
+      body.aliases = aliasList;
+    }
+
     const r = await accountsApi.updateAccount(props.accountId, body);
     if (r.success) {
+      if (Array.isArray(r.aliases)) {
+        aliasesText.value = r.aliases.join('\n');
+      }
       message.success('已保存');
       emit('saved');
       emit('update:show', false);

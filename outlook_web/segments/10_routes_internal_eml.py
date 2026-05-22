@@ -58,7 +58,12 @@ class InternalEmlClient:
         return ts, sig
 
     def _is_empty(self, body: bytes) -> bool:
-        return body == b'EMPTY' or body[:5] == b'EMPTY'
+        """服务端无邮件时返回 b'EMPTY'（可能带尾部空白）。
+        精确匹配 strip 后的值，避免任何以 'EMPTY' 开头的真实 EML 被误判。
+        """
+        if not body:
+            return False
+        return body.strip() == b'EMPTY'
 
     def get_email(self, email_addr: str) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
         """按收件人拉指定邮件。返回 (content, filename, error)。
@@ -110,19 +115,36 @@ class InternalEmlClient:
 
 
 def _extract_filename(content_disposition: str) -> str:
+    """解析 Content-Disposition 的 filename，兼容 RFC 5987 的 filename*= 形式。
+
+    - filename="foo.eml"
+    - filename=foo.eml
+    - filename*=UTF-8''foo.eml （优先采用，RFC 5987）
+    """
     if not content_disposition:
         return ''
-    idx = content_disposition.find('filename=')
-    if idx < 0:
-        return ''
-    name = content_disposition[idx + len('filename='):].strip()
-    if name.startswith('"'):
-        end = name.find('"', 1)
-        return name[1:end] if end > 0 else name[1:]
-    end = name.find(';')
-    if end > 0:
-        name = name[:end]
-    return name.strip()
+
+    import re
+    from urllib.parse import unquote
+
+    # RFC 5987: filename*=<charset>'<lang>'<percent-encoded>
+    m = re.search(r"filename\*\s*=\s*([^']*)'[^']*'([^;]+)", content_disposition, re.IGNORECASE)
+    if m:
+        charset = (m.group(1) or 'utf-8').strip() or 'utf-8'
+        try:
+            return unquote(m.group(2).strip(), encoding=charset, errors='replace')
+        except (LookupError, TypeError):
+            return unquote(m.group(2).strip())
+
+    # 经典 filename=
+    m = re.search(r'filename\s*=\s*"([^"]*)"', content_disposition, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r'filename\s*=\s*([^;]+)', content_disposition, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+
+    return ''
 
 
 # ==================== EML 解析 ====================
@@ -228,22 +250,32 @@ def _build_client_for_account(account: Dict[str, Any]) -> Optional[InternalEmlCl
     if not base_url:
         return None
 
-    private_key = (account.get('imap_password') or '').strip() or get_internal_eml_default_key()
+    # imap_password 已在写入时通过 encrypt_data 加密；读取路径用 decrypt_data 还原
+    raw_key = (account.get('imap_password') or '').strip()
+    private_key = decrypt_data(raw_key) if raw_key else ''
+    if not private_key:
+        private_key = get_internal_eml_default_key()
 
     proxies: Optional[Dict[str, str]] = None
     group_id = account.get('group_id')
     if group_id:
+        conn = None
         try:
             conn = sqlite3.connect(DATABASE)
             conn.row_factory = sqlite3.Row
             grow = conn.execute('SELECT proxy_url FROM groups WHERE id = ?', (group_id,)).fetchone()
-            conn.close()
             if grow:
                 purl = (grow['proxy_url'] or '').strip()
                 if purl:
                     proxies = {'http': purl, 'https': purl}
         except Exception:
             pass
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     return InternalEmlClient(base_url, private_key, proxies=proxies)
 
@@ -254,7 +286,13 @@ def _fetch_internal_eml_account(account_id: int) -> Optional[Dict[str, Any]]:
         'SELECT * FROM accounts WHERE id = ? AND account_type = ?',
         (account_id, 'internal_eml')
     ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    account = dict(row)
+    # 还原加密字段，便于后续 _build_client_for_account 直接使用
+    if account.get('imap_password'):
+        account['imap_password'] = decrypt_data(account['imap_password'])
+    return account
 
 
 def fetch_and_store_internal_eml(account: Dict[str, Any]) -> Tuple[int, int, Optional[str]]:
@@ -326,8 +364,16 @@ def fetch_and_store_internal_eml(account: Dict[str, Any]) -> Tuple[int, int, Opt
                 if ok:
                     deleted += 1
                 else:
-                    error = f'服务端删除失败 {filename}: {derr}'
-                    break
+                    # 单次 delete 失败不再中断整轮 drain：累计错误后继续，
+                    # 让其余排队邮件也能被消费；下一轮再尝试删除（INSERT OR IGNORE 已经去重）。
+                    last_err = f'服务端删除失败 {filename}: {derr}'
+                    error = last_err if error is None else f'{error}; {last_err}'
+                    continue
+            else:
+                # 缺失 Content-Disposition filename 时无法删除，记录但继续
+                last_err = '响应缺少 Content-Disposition filename，跳过删除'
+                error = last_err if error is None else f'{error}; {last_err}'
+                continue
     finally:
         conn.close()
 
@@ -396,6 +442,7 @@ def api_internal_eml_create_account():
         existing = cur.execute('SELECT id FROM accounts WHERE email = ?', (email_addr,)).fetchone()
         if existing:
             return jsonify({'success': False, 'error': f'邮箱 {email_addr} 已存在'}), 409
+        encrypted_api_key = encrypt_data(api_key) if api_key else api_key
         cur.execute('''
             INSERT INTO accounts
             (email, password, client_id, refresh_token, group_id, sort_order, remark,
@@ -403,7 +450,7 @@ def api_internal_eml_create_account():
              forward_enabled, created_at, updated_at)
             VALUES (?, '', '', '', ?, 0, ?, 'active', 'internal_eml', 'internal_eml',
                     ?, 0, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ''', (email_addr, group_id, remark, base_url, api_key))
+        ''', (email_addr, group_id, remark, base_url, encrypted_api_key))
         account_id = cur.lastrowid
         conn.commit()
     except Exception as exc:
@@ -471,6 +518,7 @@ def api_internal_eml_bulk_create():
                     "SELECT id FROM groups WHERE name != '临时邮箱' ORDER BY sort_order, id LIMIT 1"
                 ).fetchone()
                 actual_group_id = row[0] if row else 1
+            encrypted_api_key = encrypt_data(api_key) if api_key else api_key
             cur.execute('''
                 INSERT INTO accounts
                 (email, password, client_id, refresh_token, group_id, sort_order, remark,
@@ -478,7 +526,7 @@ def api_internal_eml_bulk_create():
                  forward_enabled, created_at, updated_at)
                 VALUES (?, '', '', '', ?, 0, ?, 'active', 'internal_eml', 'internal_eml',
                         ?, 0, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ''', (email_addr, actual_group_id, remark, base_url, api_key))
+            ''', (email_addr, actual_group_id, remark, base_url, encrypted_api_key))
             created.append({'id': cur.lastrowid, 'email': email_addr, 'base_url': base_url})
             conn.commit()
         except Exception as exc:

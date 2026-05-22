@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useMessage, useDialog } from 'naive-ui';
 import { Icon } from '@iconify/vue';
 import { tempEmailsApi, type TempEmail, type TempEmailMessage } from '@/service/api/temp-emails';
+import { sanitizeEmailHtml } from '@/utils/sanitize';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -344,7 +345,7 @@ onMounted(load);
                     <n-divider />
                     <div
                       v-if="detail.body?.content || detail.html"
-                      v-html="detail.body?.content || detail.html"
+                      v-html="sanitizeEmailHtml(detail.body?.content || detail.html)"
                       class="email-html"
                     />
                     <pre v-else class="whitespace-pre-wrap text-13px">{{ detail.text || '' }}</pre>

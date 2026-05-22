@@ -9,6 +9,7 @@ import {
 } from '@/service/api/internal-eml';
 import { Icon } from '@iconify/vue';
 import InternalEmlImportDialog from '@/components/InternalEmlImportDialog.vue';
+import { sanitizeEmailHtml } from '@/utils/sanitize';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -269,7 +270,11 @@ onMounted(loadAccounts);
                 </div>
 
                 <n-divider />
-                <div v-if="detail.body_html" v-html="detail.body_html" class="email-html" />
+                <div
+                  v-if="detail.body_html"
+                  v-html="sanitizeEmailHtml(detail.body_html)"
+                  class="email-html"
+                />
                 <pre v-else class="whitespace-pre-wrap text-13px">{{ detail.body_text }}</pre>
               </div>
             </n-card>
