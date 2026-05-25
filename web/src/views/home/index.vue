@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Icon } from '@iconify/vue';
 import * as echarts from 'echarts/core';
-import { PieChart, BarChart } from 'echarts/charts';
+import { PieChart, LineChart } from 'echarts/charts';
 import {
   TitleComponent,
   TooltipComponent,
@@ -11,214 +11,387 @@ import {
   GridComponent
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { accountsApi, type Account } from '@/service/api/accounts';
-import { tempEmailsApi } from '@/service/api/temp-emails';
+import { homeApi, type HomeStats } from '@/service/api/home';
 import { useThemeStore } from '@/store/modules/theme';
 
-echarts.use([PieChart, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer]);
+echarts.use([
+  PieChart,
+  LineChart,
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent,
+  CanvasRenderer
+]);
 
 const { t } = useI18n();
 const themeStore = useThemeStore();
 
-const stats = ref({
-  accounts: 0,
-  groups: 0,
-  tempEmails: 0,
-  internalEml: 0,
-  outlook: 0,
-  imap: 0
-});
+const data = ref<HomeStats | null>(null);
 const loading = ref(false);
-const accountsRaw = ref<Account[]>([]);
 
-const typePieRef = ref<HTMLElement | null>(null);
-const groupBarRef = ref<HTMLElement | null>(null);
-let typePieChart: echarts.ECharts | null = null;
-let groupBarChart: echarts.ECharts | null = null;
+const greeting = computed(() => {
+  const h = new Date().getHours();
+  if (h < 6) return '夜深了，早点休息';
+  if (h < 11) return '早上好';
+  if (h < 14) return '中午好';
+  if (h < 18) return '下午好';
+  return '晚上好';
+});
+
+const cards = computed(() => [
+  {
+    key: 'accounts',
+    label: '账号总数',
+    value: data.value?.totals.accounts ?? 0,
+    icon: 'tabler:users',
+    gradient: 'linear-gradient(135deg, #ec4786 0%, #b955a4 100%)'
+  },
+  {
+    key: 'groups',
+    label: '分组数',
+    value: data.value?.totals.groups ?? 0,
+    icon: 'tabler:folders',
+    gradient: 'linear-gradient(135deg, #865ec0 0%, #5144b4 100%)'
+  },
+  {
+    key: 'temp_emails',
+    label: '临时邮箱',
+    value: data.value?.totals.temp_emails ?? 0,
+    icon: 'tabler:mail-fast',
+    gradient: 'linear-gradient(135deg, #56cdf3 0%, #719de3 100%)'
+  },
+  {
+    key: 'internal_eml',
+    label: '内网邮箱',
+    value: data.value?.totals.internal_eml ?? 0,
+    icon: 'tabler:building-lighthouse',
+    gradient: 'linear-gradient(135deg, #fcbc25 0%, #f68057 100%)'
+  }
+]);
+
+const lineRef = ref<HTMLElement | null>(null);
+const donutRef = ref<HTMLElement | null>(null);
+let lineChart: echarts.ECharts | null = null;
+let donutChart: echarts.ECharts | null = null;
+
+const isDark = computed(() => themeStore.darkMode);
+const axisColor = computed(() => (isDark.value ? '#aaa' : '#666'));
+const gridLineColor = computed(() => (isDark.value ? '#2c2c32' : '#eee'));
 
 async function load() {
   loading.value = true;
   try {
-    const [g, a, t] = await Promise.all([
-      accountsApi.listGroups(),
-      accountsApi.listAccounts({ limit: 1000 }),
-      tempEmailsApi.list().catch(() => ({ emails: [] as any[] }))
-    ]);
-    accountsRaw.value = a.accounts || [];
-    stats.value.groups = g.groups?.length || 0;
-    stats.value.accounts = accountsRaw.value.length;
-    stats.value.tempEmails = (t as any).emails?.length || 0;
-    stats.value.internalEml = accountsRaw.value.filter(x => x.account_type === 'internal_eml').length;
-    stats.value.outlook = accountsRaw.value.filter(x => x.account_type === 'outlook').length;
-    stats.value.imap = accountsRaw.value.filter(x => x.account_type === 'imap').length;
-
-    renderTypePie();
-    renderGroupBar(g.groups || []);
+    data.value = await homeApi.stats();
   } finally {
     loading.value = false;
   }
 }
 
-function renderTypePie() {
-  if (!typePieRef.value) return;
-  if (!typePieChart) {
-    typePieChart = echarts.init(typePieRef.value, themeStore.darkMode ? 'dark' : undefined);
-  }
-  typePieChart.setOption({
+function renderLine() {
+  if (!lineRef.value || !data.value) return;
+  if (!lineChart) lineChart = echarts.init(lineRef.value);
+  const daily = data.value.internal_eml_daily;
+  lineChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    grid: { top: 24, left: 40, right: 24, bottom: 36 },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: daily.map(d => d.date.slice(5)),
+      axisLine: { lineStyle: { color: gridLineColor.value } },
+      axisLabel: { color: axisColor.value, fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: axisColor.value },
+      splitLine: { lineStyle: { color: gridLineColor.value } }
+    },
+    series: [
+      {
+        name: '内网邮件入库',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        showSymbol: false,
+        sampling: 'lttb',
+        data: daily.map(d => d.count),
+        itemStyle: { color: '#646cff' },
+        lineStyle: { width: 2, color: '#646cff' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(100,108,255,0.45)' },
+            { offset: 1, color: 'rgba(100,108,255,0.05)' }
+          ])
+        }
+      }
+    ]
+  });
+}
+
+function renderDonut() {
+  if (!donutRef.value || !data.value) return;
+  if (!donutChart) donutChart = echarts.init(donutRef.value);
+  const t = data.value.totals;
+  donutChart.setOption({
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item' },
-    legend: { bottom: 0, left: 'center', textStyle: { color: themeStore.darkMode ? '#ddd' : '#333' } },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      textStyle: { color: isDark.value ? '#ddd' : '#333' }
+    },
     series: [
       {
         type: 'pie',
-        radius: ['45%', '70%'],
+        radius: ['58%', '78%'],
         center: ['50%', '45%'],
-        itemStyle: { borderRadius: 6, borderColor: themeStore.darkMode ? '#18181c' : '#fff', borderWidth: 2 },
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: isDark.value ? '#18181c' : '#fff',
+          borderWidth: 3
+        },
         label: { show: false },
         labelLine: { show: false },
         data: [
-          { value: stats.value.outlook, name: 'Outlook OAuth', itemStyle: { color: '#2080f0' } },
-          { value: stats.value.imap, name: 'IMAP', itemStyle: { color: '#18a058' } },
-          { value: stats.value.internalEml, name: '内网 EML', itemStyle: { color: '#f0a020' } }
+          { value: t.outlook, name: 'Outlook OAuth', itemStyle: { color: '#2080f0' } },
+          { value: t.imap, name: 'IMAP', itemStyle: { color: '#18a058' } },
+          { value: t.internal_eml, name: '内网 EML', itemStyle: { color: '#f0a020' } }
         ].filter(x => x.value > 0)
       }
     ]
   });
 }
 
-function renderGroupBar(groups: { id: number; name: string }[]) {
-  if (!groupBarRef.value) return;
-  if (!groupBarChart) {
-    groupBarChart = echarts.init(groupBarRef.value, themeStore.darkMode ? 'dark' : undefined);
-  }
-  const counts = groups.map(g => ({
-    name: g.name,
-    count: accountsRaw.value.filter(a => a.group_id === g.id).length
-  }));
-  groupBarChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis' },
-    grid: { top: 16, right: 16, bottom: 32, left: 40 },
-    xAxis: {
-      type: 'category',
-      data: counts.map(c => c.name),
-      axisLabel: { color: themeStore.darkMode ? '#aaa' : '#666', rotate: 30, fontSize: 11 }
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: themeStore.darkMode ? '#aaa' : '#666' },
-      splitLine: { lineStyle: { color: themeStore.darkMode ? '#2c2c32' : '#eee' } }
-    },
-    series: [
-      {
-        type: 'bar',
-        data: counts.map(c => c.count),
-        itemStyle: { color: themeStore.primaryColor, borderRadius: [4, 4, 0, 0] },
-        barMaxWidth: 36
-      }
-    ]
-  });
-}
-
-function resizeCharts() {
-  typePieChart?.resize();
-  groupBarChart?.resize();
+function resize() {
+  lineChart?.resize();
+  donutChart?.resize();
 }
 
 watch(
-  () => [themeStore.darkMode, themeStore.primaryColor],
+  () => [isDark.value, data.value],
   () => {
-    typePieChart?.dispose();
-    groupBarChart?.dispose();
-    typePieChart = null;
-    groupBarChart = null;
-    renderTypePie();
-    accountsApi.listGroups().then(g => renderGroupBar(g.groups || []));
-  }
+    if (data.value) {
+      renderLine();
+      renderDonut();
+    }
+  },
+  { deep: true }
 );
 
 onMounted(async () => {
   await load();
-  window.addEventListener('resize', resizeCharts);
+  renderLine();
+  renderDonut();
+  window.addEventListener('resize', resize);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', resizeCharts);
-  typePieChart?.dispose();
-  groupBarChart?.dispose();
+  window.removeEventListener('resize', resize);
+  lineChart?.dispose();
+  donutChart?.dispose();
 });
 </script>
 
 <template>
-  <div>
-    <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen">
-      <n-gi>
-        <n-card hoverable>
-          <div class="flex-y-center">
-            <Icon icon="tabler:users" class="text-32px text-primary mr-3" />
-            <div>
-              <div class="text-12px op-60">{{ t('home.totalAccounts') }}</div>
-              <div class="text-22px font-bold">{{ stats.accounts }}</div>
+  <div class="home-page">
+    <!-- 顶部欢迎横幅 -->
+    <n-card class="welcome-banner mb-4" :bordered="false">
+      <div class="flex-y-center justify-between flex-wrap gap-4">
+        <div class="flex-y-center">
+          <div class="banner-icon">
+            <Icon icon="tabler:mail-bolt" />
+          </div>
+          <div class="ml-4">
+            <div class="text-20px font-bold">
+              {{ greeting }}，欢迎使用 {{ t('app.name') }}
+            </div>
+            <div class="text-13px op-70 mt-1">
+              今日是个适合管理收件箱的好天气 ☕
             </div>
           </div>
-        </n-card>
-      </n-gi>
-      <n-gi>
-        <n-card hoverable>
-          <div class="flex-y-center">
-            <Icon icon="tabler:folders" class="text-32px text-info mr-3" />
-            <div>
-              <div class="text-12px op-60">{{ t('home.totalGroups') }}</div>
-              <div class="text-22px font-bold">{{ stats.groups }}</div>
+        </div>
+        <div class="flex gap-8">
+          <div class="banner-stat">
+            <div class="text-12px op-60">激活账号</div>
+            <div class="text-22px font-bold mt-1">
+              {{ data?.totals.active ?? 0 }}
             </div>
           </div>
-        </n-card>
-      </n-gi>
-      <n-gi>
-        <n-card hoverable>
-          <div class="flex-y-center">
-            <Icon icon="tabler:mail-fast" class="text-32px text-warning mr-3" />
-            <div>
-              <div class="text-12px op-60">{{ t('home.totalTempEmails') }}</div>
-              <div class="text-22px font-bold">{{ stats.tempEmails }}</div>
+          <div class="banner-stat">
+            <div class="text-12px op-60">已开转发</div>
+            <div class="text-22px font-bold mt-1">
+              {{ data?.totals.forwarding ?? 0 }}
             </div>
           </div>
-        </n-card>
-      </n-gi>
-      <n-gi>
-        <n-card hoverable>
-          <div class="flex-y-center">
-            <Icon icon="tabler:building-lighthouse" class="text-32px text-success mr-3" />
-            <div>
-              <div class="text-12px op-60">{{ t('home.totalInternalEml') }}</div>
-              <div class="text-22px font-bold">{{ stats.internalEml }}</div>
+          <div class="banner-stat">
+            <div class="text-12px op-60">近 7 天失败</div>
+            <div class="text-22px font-bold mt-1 text-error">
+              {{ data?.refresh_recent.failed ?? 0 }}
             </div>
           </div>
-        </n-card>
-      </n-gi>
-    </n-grid>
-
-    <n-grid :cols="2" :x-gap="16" :y-gap="16" class="mt-4" responsive="screen">
-      <n-gi>
-        <n-card title="账号类型分布">
-          <div ref="typePieRef" style="height: 280px;" />
-        </n-card>
-      </n-gi>
-      <n-gi>
-        <n-card title="分组账号数">
-          <div ref="groupBarRef" style="height: 280px;" />
-        </n-card>
-      </n-gi>
-    </n-grid>
-
-    <n-card class="mt-4" title="使用提示">
-      <ul class="pl-5 op-80 text-13px leading-loose">
-        <li>左侧导航 <b>邮箱视图</b>：四栏分组 → 账号 → 邮件列表 → 详情</li>
-        <li><b>内网邮箱</b>：@cs2jp.com / @jokerque.com 的专用视图，支持本地落库 + 服务端自动删除</li>
-        <li><b>临时邮箱</b>：GPTMail / DuckMail / Cloudflare 多 tab 切换</li>
-        <li><b>Token 刷新</b>：批量/失败重试支持 SSE 实时进度</li>
-        <li><b>设置</b>：修改密码、对外 API Key、主题色、深色模式</li>
-      </ul>
+        </div>
+      </div>
     </n-card>
+
+    <!-- 4 张彩色渐变卡 -->
+    <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen">
+      <n-gi v-for="card in cards" :key="card.key">
+        <div class="stat-card" :style="{ background: card.gradient }">
+          <div class="stat-label">{{ card.label }}</div>
+          <Icon :icon="card.icon" class="stat-watermark" />
+          <div class="stat-value">{{ card.value.toLocaleString() }}</div>
+        </div>
+      </n-gi>
+    </n-grid>
+
+    <!-- 两张图表 -->
+    <n-grid :cols="3" :x-gap="16" :y-gap="16" responsive="screen" class="mt-4">
+      <n-gi :span="2">
+        <n-card title="内网邮件最近 14 天入库" :bordered="false">
+          <div ref="lineRef" style="height: 320px;" />
+        </n-card>
+      </n-gi>
+      <n-gi :span="1">
+        <n-card title="账号类型分布" :bordered="false">
+          <div ref="donutRef" style="height: 320px;" />
+        </n-card>
+      </n-gi>
+    </n-grid>
+
+    <!-- 快捷链接 -->
+    <n-grid :cols="4" :x-gap="16" :y-gap="16" responsive="screen" class="mt-4">
+      <n-gi>
+        <n-card hoverable @click="$router.push('/mailbox')" class="quick-link">
+          <div class="flex-y-center">
+            <Icon icon="tabler:mail" class="text-28px text-primary mr-3" />
+            <div>
+              <div class="text-14px font-medium">邮箱视图</div>
+              <div class="text-12px op-60">分组 → 账号 → 邮件</div>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi>
+        <n-card hoverable @click="$router.push('/internal-eml')" class="quick-link">
+          <div class="flex-y-center">
+            <Icon icon="tabler:building-lighthouse" class="text-28px text-warning mr-3" />
+            <div>
+              <div class="text-14px font-medium">内网邮箱</div>
+              <div class="text-12px op-60">@cs2jp / @jokerque</div>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi>
+        <n-card hoverable @click="$router.push('/refresh')" class="quick-link">
+          <div class="flex-y-center">
+            <Icon icon="tabler:refresh" class="text-28px text-info mr-3" />
+            <div>
+              <div class="text-14px font-medium">Token 刷新</div>
+              <div class="text-12px op-60">SSE 实时进度</div>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+      <n-gi>
+        <n-card hoverable @click="$router.push('/settings')" class="quick-link">
+          <div class="flex-y-center">
+            <Icon icon="tabler:settings" class="text-28px text-success mr-3" />
+            <div>
+              <div class="text-14px font-medium">系统设置</div>
+              <div class="text-12px op-60">密码 / 主题 / API</div>
+            </div>
+          </div>
+        </n-card>
+      </n-gi>
+    </n-grid>
   </div>
 </template>
+
+<style scoped>
+.home-page {
+  padding-bottom: 16px;
+}
+
+.welcome-banner {
+  background: linear-gradient(135deg, rgba(100, 108, 255, 0.08) 0%, rgba(199, 95, 213, 0.08) 100%);
+}
+
+:deep(.dark) .welcome-banner {
+  background: linear-gradient(135deg, rgba(100, 108, 255, 0.18) 0%, rgba(199, 95, 213, 0.18) 100%);
+}
+
+.banner-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #646cff 0%, #b955a4 100%);
+  color: white;
+  font-size: 28px;
+  box-shadow: 0 8px 20px rgba(100, 108, 255, 0.3);
+}
+
+.banner-stat {
+  text-align: center;
+  min-width: 80px;
+}
+
+/* 彩色渐变统计卡 */
+.stat-card {
+  position: relative;
+  padding: 22px 20px;
+  border-radius: 12px;
+  color: white;
+  overflow: hidden;
+  cursor: default;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+.stat-label {
+  font-size: 14px;
+  opacity: 0.95;
+  letter-spacing: 0.4px;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.stat-watermark {
+  position: absolute;
+  right: -10px;
+  bottom: -10px;
+  font-size: 110px;
+  color: white;
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.quick-link {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.quick-link:hover {
+  transform: translateY(-2px);
+}
+</style>

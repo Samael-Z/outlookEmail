@@ -9,7 +9,7 @@
 ## Requirements
 
 ### Requirement: Internal EML protocol client
-系统 SHALL 通过签名 HTTP GET 协议访问内网 EML 邮件服务器，行为与项目主人提供的 Go SDK 一致。
+系统 SHALL 通过签名 HTTP GET 协议访问内网 EML 邮件服务器，行为与项目主人提供的 Go SDK 一致；并 SHALL 在 HTTPS baseURL 下默认启用 TLS 证书校验。
 
 #### Scenario: 签名生成
 - **WHEN** 系统需要向内网 EML 服务器发送任意一类请求
@@ -30,6 +30,18 @@
 #### Scenario: 代理与超时
 - **WHEN** 账号关联的分组配置了 `proxy_url`
 - **THEN** 系统 SHALL 通过 `requests.get(..., proxies={'http': proxy_url, 'https': proxy_url}, timeout=30)` 发起调用。
+
+#### Scenario: HTTPS 默认校验证书
+- **WHEN** 内网 EML 账号的 baseURL 以 `https://` 开头，且未显式禁用 TLS 校验
+- **THEN** 客户端 SHALL 以 `verify=True` 发起 requests 调用。
+
+#### Scenario: HTTP 跳过校验是 noop
+- **WHEN** baseURL 以 `http://` 开头
+- **THEN** 客户端 SHALL 以 `verify=False` 发起调用，且 SHALL NOT 触发 urllib3 的 InsecureRequestWarning。
+
+#### Scenario: 环境变量显式禁用 TLS 校验
+- **WHEN** 环境变量 `INTERNAL_EML_INSECURE` 为 truthy 值（`1`/`true`/`yes`/`on`）
+- **THEN** `_build_client_for_account` SHALL 把 `verify_tls=False` 传给客户端，即使 baseURL 是 `https://`。
 
 ### Requirement: Internal EML account storage
 系统 SHALL 复用现有 `accounts` 表承载内网 EML 账号，并将敏感凭据加密存储。

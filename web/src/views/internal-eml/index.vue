@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useMessage, useDialog } from 'naive-ui';
+import { ref, computed, onMounted, h } from 'vue';
+import { useMessage, useDialog, NIcon } from 'naive-ui';
+import type { DropdownOption } from 'naive-ui';
 import { accountsApi, type Account } from '@/service/api/accounts';
 import {
   internalEmlApi,
   type InternalEmlMessage,
-  type InternalEmlMessageDetail
+  type InternalEmlMessageDetail,
+  type DomainsConfig
 } from '@/service/api/internal-eml';
 import { Icon } from '@iconify/vue';
 import InternalEmlImportDialog from '@/components/InternalEmlImportDialog.vue';
@@ -14,6 +16,10 @@ import { sanitizeEmailHtml } from '@/utils/sanitize';
 const message = useMessage();
 const dialog = useDialog();
 const showImport = ref(false);
+const generating = ref(false);
+const domainsConfig = ref<DomainsConfig | null>(null);
+
+const RANDOM_PREFIX_LENGTH = 10;
 
 const accounts = ref<Account[]>([]);
 const selectedAccountId = ref<number | null>(null);
@@ -34,6 +40,68 @@ async function loadAccounts() {
     selectedAccountId.value = accounts.value[0].id;
     await loadMessages();
   }
+}
+
+async function loadDomainsConfig() {
+  try {
+    domainsConfig.value = await internalEmlApi.getDomains();
+  } catch {
+    domainsConfig.value = null;
+  }
+}
+
+const randomDomainOptions = computed<DropdownOption[]>(() => {
+  const domains = Object.keys(domainsConfig.value?.domains || {});
+  return domains.map(d => ({
+    label: '@' + d,
+    key: d,
+    icon: () => h(NIcon, null, { default: () => h(Icon, { icon: 'tabler:at' }) })
+  }));
+});
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function handleRandomGenerate(domain: string) {
+  if (generating.value) return;
+  generating.value = true;
+  try {
+    const r = await internalEmlApi.generateRandom({
+      domain,
+      prefix_length: RANDOM_PREFIX_LENGTH
+    });
+    if (r.success && r.account) {
+      const copied = await copyToClipboard(r.account.email);
+      message.success(
+        copied
+          ? `已生成 ${r.account.email}（已复制到剪贴板）`
+          : `已生成 ${r.account.email}`,
+        { duration: 6000, closable: true }
+      );
+      await loadAccounts();
+      // 选中刚生成的账号
+      selectedAccountId.value = r.account.id;
+      await loadMessages();
+    } else {
+      message.error(r.error || '生成失败');
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.error || '生成失败');
+  } finally {
+    generating.value = false;
+  }
+}
+
+async function copyAccountEmail(account: Account) {
+  const ok = await copyToClipboard(account.email);
+  if (ok) message.success('已复制 ' + account.email);
+  else message.error('复制失败，请手动复制');
 }
 
 async function loadMessages() {
@@ -128,7 +196,10 @@ function attachmentUrl(idx: number) {
   return internalEmlApi.attachmentUrl(selectedAccountId.value, detail.value.id, idx);
 }
 
-onMounted(loadAccounts);
+onMounted(() => {
+  loadAccounts();
+  loadDomainsConfig();
+});
 </script>
 
 <template>
@@ -140,15 +211,41 @@ onMounted(loadAccounts);
             <span>内网邮箱 ({{ accounts.length }})</span>
           </template>
           <template #header-extra>
-            <n-button size="small" type="primary" @click="showImport = true">
-              <Icon icon="tabler:plus" /> <span class="ml-1">添加</span>
-            </n-button>
+            <n-space :size="6">
+              <n-dropdown
+                trigger="click"
+                :options="randomDomainOptions"
+                :disabled="generating || randomDomainOptions.length === 0"
+                @select="handleRandomGenerate"
+              >
+                <n-button size="small" :loading="generating">
+                  🎲
+                  <span class="ml-1">随机</span>
+                  <Icon icon="tabler:chevron-down" class="ml-1 op-60" />
+                </n-button>
+              </n-dropdown>
+              <n-button size="small" type="primary" @click="showImport = true">
+                <Icon icon="tabler:plus" /> <span class="ml-1">添加</span>
+              </n-button>
+            </n-space>
           </template>
           <n-empty v-if="!accounts.length" description="无内网邮箱账号" class="mt-12">
             <template #extra>
-              <n-button size="small" type="primary" @click="showImport = true">
-                立即添加
-              </n-button>
+              <n-space>
+                <n-dropdown
+                  trigger="click"
+                  :options="randomDomainOptions"
+                  :disabled="generating || randomDomainOptions.length === 0"
+                  @select="handleRandomGenerate"
+                >
+                  <n-button size="small" :loading="generating">
+                    🎲 随机生成一个
+                  </n-button>
+                </n-dropdown>
+                <n-button size="small" type="primary" @click="showImport = true">
+                  手动添加
+                </n-button>
+              </n-space>
             </template>
           </n-empty>
           <n-list v-else hoverable clickable>
@@ -163,15 +260,25 @@ onMounted(loadAccounts);
                   <div class="text-13px truncate">{{ a.email }}</div>
                   <div class="text-11px op-60 truncate">{{ a.imap_host || '默认 baseURL' }}</div>
                 </div>
-                <n-button
-                  text
-                  type="error"
-                  size="tiny"
-                  @click.stop="deleteAccount(a)"
-                  class="ml-2"
-                >
-                  <Icon icon="tabler:trash" />
-                </n-button>
+                <n-space :size="2" class="ml-2">
+                  <n-button
+                    text
+                    size="tiny"
+                    title="复制邮箱"
+                    @click.stop="copyAccountEmail(a)"
+                  >
+                    <Icon icon="tabler:copy" />
+                  </n-button>
+                  <n-button
+                    text
+                    type="error"
+                    size="tiny"
+                    title="删除"
+                    @click.stop="deleteAccount(a)"
+                  >
+                    <Icon icon="tabler:trash" />
+                  </n-button>
+                </n-space>
               </div>
             </n-list-item>
           </n-list>

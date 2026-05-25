@@ -46,11 +46,19 @@ class InternalEmlClient:
     """
 
     def __init__(self, base_url: str, private_key: str, proxies: Optional[Dict[str, str]] = None,
-                 timeout: int = 30):
+                 timeout: int = 30, verify_tls: Optional[bool] = None):
         self.base_url = (base_url or '').rstrip('/')
         self.private_key = private_key or ''
         self.proxies = proxies
         self.timeout = timeout
+        # verify_tls 三态：
+        #   None  → 按 scheme 推断（http=False / https=True）
+        #   True  → 显式开启证书校验
+        #   False → 显式关闭（用于内网自签证书；通过 INTERNAL_EML_INSECURE 触发）
+        if verify_tls is None:
+            self.verify_tls = self.base_url.lower().startswith('https://')
+        else:
+            self.verify_tls = bool(verify_tls)
 
     def _sign(self, suffix: str) -> Tuple[str, str]:
         ts = str(int(time.time()))
@@ -73,7 +81,7 @@ class InternalEmlClient:
         params = {'timestamp': ts, 'signature': sig, 'email': email_addr}
         try:
             r = requests.get(f'{self.base_url}/get', params=params,
-                             proxies=self.proxies, timeout=self.timeout, verify=False)
+                             proxies=self.proxies, timeout=self.timeout, verify=self.verify_tls)
         except Exception as exc:
             return None, None, f'request error: {exc}'
         if r.status_code != 200:
@@ -89,7 +97,7 @@ class InternalEmlClient:
         params = {'timestamp': ts, 'signature': sig}
         try:
             r = requests.get(f'{self.base_url}/download', params=params,
-                             proxies=self.proxies, timeout=self.timeout, verify=False)
+                             proxies=self.proxies, timeout=self.timeout, verify=self.verify_tls)
         except Exception as exc:
             return None, None, f'request error: {exc}'
         if r.status_code != 200:
@@ -106,7 +114,7 @@ class InternalEmlClient:
         params = {'timestamp': ts, 'signature': sig, 'filename': filename}
         try:
             r = requests.get(f'{self.base_url}/delete', params=params,
-                             proxies=self.proxies, timeout=self.timeout, verify=False)
+                             proxies=self.proxies, timeout=self.timeout, verify=self.verify_tls)
         except Exception as exc:
             return False, f'request error: {exc}'
         if r.status_code == 200:
@@ -256,6 +264,10 @@ def _build_client_for_account(account: Dict[str, Any]) -> Optional[InternalEmlCl
     if not private_key:
         private_key = get_internal_eml_default_key()
 
+    # 环境变量 INTERNAL_EML_INSECURE=true 显式跳过 TLS 校验（自签证书场景）
+    insecure_env = (os.getenv('INTERNAL_EML_INSECURE', '') or '').strip().lower()
+    verify_tls: Optional[bool] = False if insecure_env in {'1', 'true', 'yes', 'on'} else None
+
     proxies: Optional[Dict[str, str]] = None
     group_id = account.get('group_id')
     if group_id:
@@ -277,7 +289,7 @@ def _build_client_for_account(account: Dict[str, Any]) -> Optional[InternalEmlCl
                 except Exception:
                     pass
 
-    return InternalEmlClient(base_url, private_key, proxies=proxies)
+    return InternalEmlClient(base_url, private_key, proxies=proxies, verify_tls=verify_tls)
 
 
 def _fetch_internal_eml_account(account_id: int) -> Optional[Dict[str, Any]]:
@@ -382,6 +394,79 @@ def fetch_and_store_internal_eml(account: Dict[str, Any]) -> Tuple[int, int, Opt
 
 # ==================== HTTP 路由 ====================
 
+@app.route('/api/home/stats', methods=['GET'])
+@login_required
+def api_home_stats():
+    """首页仪表盘聚合统计：账号汇总 + 内网邮件最近 14 天入库曲线 + 刷新成功率。"""
+    db = get_db()
+
+    row_totals = db.execute('''
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN account_type = 'outlook' THEN 1 ELSE 0 END) AS outlook,
+            SUM(CASE WHEN account_type = 'imap' THEN 1 ELSE 0 END) AS imap,
+            SUM(CASE WHEN account_type = 'internal_eml' THEN 1 ELSE 0 END) AS internal_eml,
+            SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+            SUM(CASE WHEN forward_enabled = 1 THEN 1 ELSE 0 END) AS forwarding
+        FROM accounts
+    ''').fetchone()
+
+    groups_count = db.execute('SELECT COUNT(*) AS c FROM groups').fetchone()['c']
+    temp_count = db.execute('SELECT COUNT(*) AS c FROM temp_emails').fetchone()['c']
+
+    # 内网邮件最近 14 天每日入库数
+    try:
+        daily = db.execute('''
+            SELECT DATE(fetched_at) AS d, COUNT(*) AS c
+            FROM internal_eml_messages
+            WHERE fetched_at >= datetime('now', '-13 days')
+            GROUP BY DATE(fetched_at)
+            ORDER BY d
+        ''').fetchall()
+        daily_map = {r['d']: r['c'] for r in daily}
+    except Exception:
+        daily_map = {}
+
+    from datetime import date, timedelta
+    today = date.today()
+    series = []
+    for i in range(13, -1, -1):
+        d = today - timedelta(days=i)
+        key = d.isoformat()
+        series.append({'date': key, 'count': daily_map.get(key, 0)})
+
+    # 最近 7 天 Token 刷新成功 / 失败
+    try:
+        refresh_rows = db.execute('''
+            SELECT status, COUNT(*) AS c
+            FROM account_refresh_logs
+            WHERE created_at >= datetime('now', '-7 days')
+            GROUP BY status
+        ''').fetchall()
+        refresh_stats = {r['status']: r['c'] for r in refresh_rows}
+    except Exception:
+        refresh_stats = {}
+
+    return jsonify({
+        'success': True,
+        'totals': {
+            'accounts': row_totals['total'] or 0,
+            'outlook': row_totals['outlook'] or 0,
+            'imap': row_totals['imap'] or 0,
+            'internal_eml': row_totals['internal_eml'] or 0,
+            'active': row_totals['active'] or 0,
+            'forwarding': row_totals['forwarding'] or 0,
+            'groups': groups_count,
+            'temp_emails': temp_count,
+        },
+        'internal_eml_daily': series,
+        'refresh_recent': {
+            'success': refresh_stats.get('success', 0),
+            'failed': refresh_stats.get('failed', 0),
+        },
+    })
+
+
 @app.route('/api/internal-eml/config/domains', methods=['GET'])
 @login_required
 def api_internal_eml_domains():
@@ -470,6 +555,101 @@ def api_internal_eml_create_account():
             'remark': remark,
         },
     })
+
+
+@app.route('/api/internal-eml/accounts/generate-random', methods=['POST'])
+@login_required
+def api_internal_eml_generate_random():
+    """随机生成一个内网 EML 邮箱地址并直接创建账号。
+
+    body: { domain?: 'cs2jp.com' | 'jokerque.com', prefix_length?: 8, group_id?, remark? }
+    返回 { success, account: {id, email, base_url, ...} }
+    """
+    import secrets as _secrets
+    import string as _string
+
+    data = request.get_json(silent=True) or {}
+
+    # 1) 选择域名
+    domain = (data.get('domain') or '').strip().lower()
+    if not domain:
+        # 没指定就随便挑一个支持的
+        domains = list(INTERNAL_EML_DOMAIN_BASEURL_DEFAULT.keys())
+        if not domains:
+            return jsonify({'success': False, 'error': '没有可用的内网域名'}), 400
+        domain = _secrets.choice(domains)
+    elif domain not in INTERNAL_EML_DOMAIN_BASEURL_DEFAULT and \
+            not get_internal_eml_baseurl_for_domain(domain):
+        return jsonify({'success': False, 'error': f'不支持的域名: {domain}'}), 400
+
+    base_url = get_internal_eml_baseurl_for_domain(domain) or ''
+    if not base_url:
+        return jsonify({'success': False, 'error': f'域名 {domain} 无法解析 baseURL'}), 400
+
+    # 2) 前缀生成（默认 10 字符 [a-z0-9]，避免名称冲突时最多重试 5 次）
+    try:
+        prefix_length = max(4, min(32, int(data.get('prefix_length') or 10)))
+    except (TypeError, ValueError):
+        prefix_length = 10
+
+    alphabet = _string.ascii_lowercase + _string.digits
+
+    api_key = get_internal_eml_default_key()
+    encrypted_api_key = encrypt_data(api_key) if api_key else api_key
+
+    group_id = data.get('group_id')
+    try:
+        group_id = int(group_id) if group_id is not None else None
+    except (TypeError, ValueError):
+        group_id = None
+
+    remark = (data.get('remark') or '随机生成').strip()[:500]
+
+    conn = sqlite3.connect(DATABASE)
+    try:
+        cur = conn.cursor()
+        if group_id is None:
+            row = cur.execute(
+                "SELECT id FROM groups WHERE name != '临时邮箱' ORDER BY sort_order, id LIMIT 1"
+            ).fetchone()
+            group_id = row[0] if row else 1
+
+        last_err = ''
+        for _ in range(5):
+            prefix = ''.join(_secrets.choice(alphabet) for _ in range(prefix_length))
+            email_addr = f'{prefix}@{domain}'
+            existing = cur.execute('SELECT id FROM accounts WHERE email = ?', (email_addr,)).fetchone()
+            if existing:
+                last_err = f'冲突: {email_addr} 已存在'
+                continue
+            try:
+                cur.execute('''
+                    INSERT INTO accounts
+                    (email, password, client_id, refresh_token, group_id, sort_order, remark,
+                     status, account_type, provider, imap_host, imap_port, imap_password,
+                     forward_enabled, created_at, updated_at)
+                    VALUES (?, '', '', '', ?, 0, ?, 'active', 'internal_eml', 'internal_eml',
+                            ?, 0, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', (email_addr, group_id, remark, base_url, encrypted_api_key))
+                account_id = cur.lastrowid
+                conn.commit()
+                return jsonify({
+                    'success': True,
+                    'account': {
+                        'id': account_id,
+                        'email': email_addr,
+                        'domain': domain,
+                        'base_url': base_url,
+                        'group_id': group_id,
+                        'remark': remark,
+                    },
+                })
+            except Exception as exc:
+                last_err = str(exc)
+                continue
+        return jsonify({'success': False, 'error': f'生成失败: {last_err or "未知错误"}'}), 500
+    finally:
+        conn.close()
 
 
 @app.route('/api/internal-eml/accounts/bulk', methods=['POST'])

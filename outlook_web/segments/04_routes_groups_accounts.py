@@ -58,11 +58,18 @@ def login():
 
 @app.route('/logout', methods=['GET', 'POST'])
 def logout():
-    """退出登录：JSON 响应，不再 redirect（由前端处理跳转）"""
-    session.pop('logged_in', None)
-    if request.is_json or request.path.startswith('/api/') or request.method == 'POST':
+    """退出登录：
+
+    POST：执行 session.pop（Flask-WTF CSRF 中间件会前置校验 X-CSRFToken）。
+    GET ：**不修改 session**，仅返回 SPA shell。
+          原 GET 路径会无条件 pop session，导致 <img src="/logout"> 类
+          跨站 GET 即可强制管理员下线（CSRF DoS）。改成 GET 幂等后，
+          只有持有 CSRF token 的 POST 才能登出。
+    """
+    if request.method == 'POST':
+        session.pop('logged_in', None)
         return jsonify({'success': True})
-    # GET 兼容：仍然返回 SPA，前端 router guard 会把用户带去 /login
+    # GET：仅展示，不动 session；让前端 router guard 决定是否跳到 /login
     return _serve_spa_or_fallback('login.html')
 
 

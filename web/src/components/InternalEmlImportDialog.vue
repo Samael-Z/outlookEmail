@@ -37,7 +37,6 @@ watch(
     if (v) {
       await loadConfig();
     } else {
-      // 关闭时重置
       single.value = { email: '', api_key: '', base_url: '', remark: '' };
       bulkText.value = '';
     }

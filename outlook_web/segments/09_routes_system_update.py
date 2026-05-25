@@ -701,6 +701,10 @@ def api_get_audit_logs():
     resource_type = (request.args.get('resource_type', '') or '').strip()
     keyword = (request.args.get('keyword', '') or '').strip()
 
+    def _escape_sql_like(value: str) -> str:
+        """转义 SQL LIKE 元字符。务必先替换反斜杠自身，否则后续替换会被误转。"""
+        return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
     where = ['1=1']
     params: list = []
     if action:
@@ -710,8 +714,13 @@ def api_get_audit_logs():
         where.append('resource_type = ?')
         params.append(resource_type)
     if keyword:
-        where.append('(details LIKE ? OR resource_id LIKE ? OR user_ip LIKE ?)')
-        like = f'%{keyword}%'
+        # 显式声明 ESCAPE 字符，否则 SQLite 默认不识别 \ 作为 LIKE 转义符
+        where.append(
+            "(details LIKE ? ESCAPE '\\' "
+            "OR resource_id LIKE ? ESCAPE '\\' "
+            "OR user_ip LIKE ? ESCAPE '\\')"
+        )
+        like = f'%{_escape_sql_like(keyword)}%'
         params.extend([like, like, like])
     where_sql = ' AND '.join(where)
 

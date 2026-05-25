@@ -51,6 +51,24 @@ export const internalEmlApi = {
       url: '/api/internal-eml/config/domains'
     });
   },
+  generateRandom(payload: { domain?: string; prefix_length?: number; group_id?: number; remark?: string } = {}) {
+    return http<{
+      success: boolean;
+      error?: string;
+      account?: {
+        id: number;
+        email: string;
+        domain: string;
+        base_url: string;
+        group_id: number;
+        remark: string;
+      };
+    }>({
+      method: 'POST',
+      url: '/api/internal-eml/accounts/generate-random',
+      data: payload
+    });
+  },
   createAccount(payload: CreateAccountPayload) {
     return http<{
       success: boolean;
