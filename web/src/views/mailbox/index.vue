@@ -6,6 +6,7 @@ import { accountsApi, type Account } from '@/service/api/accounts';
 import { emailsApi, type EmailListItem, type Folder } from '@/service/api/emails';
 import GroupManageDrawer from '@/components/GroupManageDrawer.vue';
 import { sanitizeEmailHtml } from '@/utils/sanitize';
+import { copyText } from '@/utils/clipboard';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -153,6 +154,12 @@ function selectCategory(key: string) {
   checked.value = [];
 }
 
+async function copyEmail(email: string) {
+  const ok = await copyText(email);
+  if (ok) message.success(`已复制 ${email}`);
+  else message.error('复制失败，请手动选择');
+}
+
 async function selectAccount(account: Account) {
   selectedAccount.value = account;
   detail.value = null;
@@ -192,11 +199,47 @@ async function refreshEmails() {
   }
 }
 
+function getDetailHtml(d: any): string {
+  if (!d) return '';
+  // 后端常见 shape: { body: string, body_type: 'html' | 'text' }
+  if (typeof d.body === 'string') {
+    const t = String(d.body_type || '').toLowerCase();
+    if (t === 'html') return d.body;
+    // body_type 缺失时按内容嗅探
+    if (!t && /<[a-z!][^>]*>/i.test(d.body)) return d.body;
+    return '';
+  }
+  // Graph shape: { body: { content, contentType } }
+  if (d.body && typeof d.body === 'object') {
+    const ct = String(d.body.contentType || '').toLowerCase();
+    if (ct === 'html') return String(d.body.content || '');
+  }
+  return String(d.html || d.body_html || '');
+}
+
+function getDetailText(d: any): string {
+  if (!d) return '';
+  if (typeof d.body === 'string') {
+    const t = String(d.body_type || '').toLowerCase();
+    if (t === 'text') return d.body;
+    if (!t && !/<[a-z!][^>]*>/i.test(d.body)) return d.body;
+  }
+  if (d.body && typeof d.body === 'object') {
+    const ct = String(d.body.contentType || '').toLowerCase();
+    if (ct && ct !== 'html') return String(d.body.content || '');
+  }
+  return String(d.text || d.body_text || '');
+}
+
 async function openEmail(item: EmailListItem) {
   if (!selectedAccount.value || !item.id) return;
   loadingDetail.value = true;
   try {
-    const r = await emailsApi.detail(selectedAccount.value.email, String(item.id));
+    const r = await emailsApi.detail(
+      selectedAccount.value.email,
+      String(item.id),
+      { folder: item.folder || folder.value }
+    );
     if (r.success) {
       detail.value = r.email;
     } else {
@@ -345,7 +388,7 @@ onMounted(loadAccounts);
         <n-split direction="horizontal" :default-size="0.22" :min="0.15" :max="0.4">
           <!-- 账号列表 -->
           <template #1>
-            <n-card content-style="padding: 0;" class="h-full">
+            <n-card content-style="padding: 0; display: flex; flex-direction: column; min-height: 0;" class="h-full">
               <template #header>
                 <span>账号 ({{ filteredAccounts.length }})</span>
               </template>
@@ -355,14 +398,31 @@ onMounted(loadAccounts);
                 :description="selectedCategory === 'personal' ? '未标记常用账号' : '此分类无账号'"
                 class="mt-12"
               />
-              <n-list v-else hoverable clickable>
+              <n-scrollbar v-else style="flex: 1 1 0; min-height: 0;">
+              <n-list hoverable clickable>
                 <n-list-item
                   v-for="a in filteredAccounts"
                   :key="a.id"
                   @click="selectAccount(a)"
                   :style="{ background: selectedAccount?.id === a.id ? 'rgba(100,108,255,0.1)' : '' }"
                 >
-                  <div class="text-13px truncate">{{ a.email }}</div>
+                  <div class="flex-y-center gap-1">
+                    <div class="text-13px truncate flex-1">{{ a.email }}</div>
+                    <n-tooltip trigger="hover" :delay="300">
+                      <template #trigger>
+                        <n-button
+                          quaternary
+                          circle
+                          size="tiny"
+                          class="shrink-0"
+                          @click.stop="copyEmail(a.email)"
+                        >
+                          <Icon icon="tabler:copy" />
+                        </n-button>
+                      </template>
+                      复制邮箱地址
+                    </n-tooltip>
+                  </div>
                   <div class="flex-y-center text-11px op-60 mt-1">
                     <n-tag v-if="isPersonal(a)" size="tiny" :bordered="false" type="warning" class="mr-1">
                       <template #icon>
@@ -374,6 +434,7 @@ onMounted(loadAccounts);
                   </div>
                 </n-list-item>
               </n-list>
+              </n-scrollbar>
             </n-card>
           </template>
 
@@ -521,11 +582,12 @@ onMounted(loadAccounts);
 
                     <n-divider />
                     <div
-                      v-if="detail.body?.content || detail.html || detail.body_html"
-                      v-html="sanitizeEmailHtml(detail.body?.content || detail.html || detail.body_html)"
+                      v-if="getDetailHtml(detail)"
+                      v-html="sanitizeEmailHtml(getDetailHtml(detail))"
                       class="email-html"
                     />
-                    <pre v-else class="whitespace-pre-wrap text-13px">{{ detail.text || detail.body_text || '' }}</pre>
+                    <pre v-else-if="getDetailText(detail)" class="whitespace-pre-wrap text-13px">{{ getDetailText(detail) }}</pre>
+                    <n-empty v-else description="正文为空" class="my-6" />
                   </div>
                 </n-card>
               </template>

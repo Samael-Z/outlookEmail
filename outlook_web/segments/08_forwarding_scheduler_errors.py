@@ -1392,7 +1392,7 @@ def api_get_emails_v2(email_addr):
         )
         return jsonify({'success': False, 'error': error_payload})
 
-    folder = normalize_folder_name(request.args.get('folder', 'inbox'))
+    folder = normalize_folder_name(request.args.get('folder', 'all'))
     skip = int(request.args.get('skip', 0))
     top = int(request.args.get('top', 20))
     subject_contains = get_query_arg_preserve_plus('subject_contains', '').strip().lower()
@@ -1418,7 +1418,7 @@ def api_get_emails_v2(email_addr):
 
 def api_external_get_emails_v2():
     email_addr = get_query_arg_preserve_plus('email', '').strip()
-    folder = normalize_folder_name(request.args.get('folder', 'inbox'))
+    folder = normalize_folder_name(request.args.get('folder', 'all'))
     skip = int(request.args.get('skip', 0))
     top = int(request.args.get('top', 1))
     subject_contains = get_query_arg_preserve_plus('subject_contains', '').strip().lower()

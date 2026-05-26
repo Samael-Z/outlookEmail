@@ -2414,24 +2414,45 @@ def log_audit(action: str, resource_type: str, resource_id: str = None, details:
         pass
 
 
-def decode_header_value(header_value: str) -> str:
-    """解码邮件头字段"""
-    if not header_value:
+_HEADER_CHARSET_FALLBACKS = ('utf-8', 'gb18030', 'big5', 'shift_jis', 'euc-kr', 'latin-1')
+
+
+def _decode_header_bytes(part: bytes, charset: Optional[str]) -> str:
+    """对 header 字节段尽力解码：优先用提示的 charset，否则按常见编码逐个试。"""
+    if charset and charset.lower() not in ('unknown-8bit', '8bit'):
+        try:
+            return part.decode(charset, 'strict')
+        except (LookupError, UnicodeDecodeError):
+            pass
+    for enc in _HEADER_CHARSET_FALLBACKS:
+        try:
+            return part.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    # 兜底：latin-1 永远不抛
+    return part.decode('latin-1', 'replace')
+
+
+def decode_header_value(header_value) -> str:
+    """解码邮件头字段。支持 RFC 2047 编码字段和裸 8 位字节（常见于 163/QQ 中文）。"""
+    if header_value is None or header_value == "":
         return ""
     try:
-        decoded_parts = decode_header(str(header_value))
-        decoded_string = ""
+        # 关键：直接把 Header / str / bytes 喂给 decode_header，不要 str()，
+        # 否则 Header 对象会先被 __str__ 折成带 U+FFFD 的 str，原始字节就回不来了。
+        decoded_parts = decode_header(header_value)
+        out = []
         for part, charset in decoded_parts:
             if isinstance(part, bytes):
-                try:
-                    decoded_string += part.decode(charset if charset else 'utf-8', 'replace')
-                except (LookupError, UnicodeDecodeError):
-                    decoded_string += part.decode('utf-8', 'replace')
+                out.append(_decode_header_bytes(part, charset))
             else:
-                decoded_string += str(part)
-        return decoded_string
+                out.append(str(part))
+        return ''.join(out)
     except Exception:
-        return str(header_value) if header_value else ""
+        try:
+            return str(header_value)
+        except Exception:
+            return ""
 
 
 def get_email_body(msg) -> str:

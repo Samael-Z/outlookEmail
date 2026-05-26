@@ -707,7 +707,7 @@ def api_update_settings():
 def api_external_get_emails():
     """对外 API：通过 API Key 获取邮件列表"""
     email_addr = get_query_arg_preserve_plus('email', '').strip()
-    folder = request.args.get('folder', 'inbox').strip().lower()
+    folder = request.args.get('folder', 'all').strip().lower()
     skip = int(request.args.get('skip', 0))
     top = int(request.args.get('top', 20))
 
@@ -715,7 +715,7 @@ def api_external_get_emails():
         return jsonify({'success': False, 'error': '缺少 email 参数'}), 400
 
     # 验证 folder 参数
-    valid_folders = ['inbox', 'junkemail']
+    valid_folders = ['inbox', 'junkemail', 'all']
     if folder not in valid_folders:
         return jsonify({'success': False, 'error': f'folder 参数无效，支持: {", ".join(valid_folders)}'}), 400
 
@@ -726,6 +726,10 @@ def api_external_get_emails():
     account = resolve_account_for_email_api(email_addr)
     if not account:
         return jsonify({'success': False, 'error': '邮箱账号不存在'}), 404
+
+    # folder=all 时复用 fetch_account_emails（含 inbox+junkemail 并行+合并+排序）
+    if folder == 'all':
+        return jsonify(fetch_account_emails(account, 'all', skip, top))
 
     # 获取分组代理设置
     proxy_url = get_account_proxy_url(account)

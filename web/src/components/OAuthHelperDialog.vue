@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import { Icon } from '@iconify/vue';
 import { oauthApi } from '@/service/api/oauth';
+import { copyText } from '@/utils/clipboard';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{
@@ -48,8 +49,9 @@ async function generateAuthUrl() {
 
 async function copyAuthUrl() {
   if (!authInfo.value) return;
-  await navigator.clipboard.writeText(authInfo.value.auth_url);
-  message.success('已复制授权链接');
+  const ok = await copyText(authInfo.value.auth_url);
+  if (ok) message.success('已复制授权链接');
+  else message.error('复制失败，请手动选择');
 }
 
 async function exchange() {
@@ -74,8 +76,9 @@ async function exchange() {
 }
 
 async function copyToken(value: string) {
-  await navigator.clipboard.writeText(value);
-  message.success('已复制');
+  const ok = await copyText(value);
+  if (ok) message.success('已复制');
+  else message.error('复制失败，请手动选择');
 }
 
 function applyToImport() {

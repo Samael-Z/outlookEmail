@@ -31,10 +31,11 @@ export const emailsApi = {
       params
     });
   },
-  detail(email: string, messageId: string) {
+  detail(email: string, messageId: string, params: { folder?: string } = {}) {
     return http<{ success: boolean; email?: any; error?: any }>({
       method: 'GET',
-      url: `/api/email/${encodeURIComponent(email)}/${encodeURIComponent(messageId)}`
+      url: `/api/email/${encodeURIComponent(email)}/${encodeURIComponent(messageId)}`,
+      params
     });
   },
   markRead(email: string, items: Array<{ id: string; folder?: string; id_mode?: string }>) {

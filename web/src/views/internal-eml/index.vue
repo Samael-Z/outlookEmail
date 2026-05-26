@@ -12,6 +12,7 @@ import {
 import { Icon } from '@iconify/vue';
 import InternalEmlImportDialog from '@/components/InternalEmlImportDialog.vue';
 import { sanitizeEmailHtml } from '@/utils/sanitize';
+import { copyText } from '@/utils/clipboard';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -59,15 +60,6 @@ const randomDomainOptions = computed<DropdownOption[]>(() => {
   }));
 });
 
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function handleRandomGenerate(domain: string) {
   if (generating.value) return;
   generating.value = true;
@@ -77,7 +69,7 @@ async function handleRandomGenerate(domain: string) {
       prefix_length: RANDOM_PREFIX_LENGTH
     });
     if (r.success && r.account) {
-      const copied = await copyToClipboard(r.account.email);
+      const copied = await copyText(r.account.email);
       message.success(
         copied
           ? `已生成 ${r.account.email}（已复制到剪贴板）`
@@ -99,7 +91,7 @@ async function handleRandomGenerate(domain: string) {
 }
 
 async function copyAccountEmail(account: Account) {
-  const ok = await copyToClipboard(account.email);
+  const ok = await copyText(account.email);
   if (ok) message.success('已复制 ' + account.email);
   else message.error('复制失败，请手动复制');
 }

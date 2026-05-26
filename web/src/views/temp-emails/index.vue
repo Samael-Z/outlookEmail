@@ -4,6 +4,7 @@ import { useMessage, useDialog } from 'naive-ui';
 import { Icon } from '@iconify/vue';
 import { tempEmailsApi, type TempEmail, type TempEmailMessage } from '@/service/api/temp-emails';
 import { sanitizeEmailHtml } from '@/utils/sanitize';
+import { copyText } from '@/utils/clipboard';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -213,8 +214,9 @@ async function submitGenerate() {
 }
 
 async function copyEmail(addr: string) {
-  await navigator.clipboard.writeText(addr);
-  message.success('已复制');
+  const ok = await copyText(addr);
+  if (ok) message.success('已复制');
+  else message.error('复制失败，请手动选择');
 }
 
 function senderLabel(m: TempEmailMessage): string {

@@ -2388,7 +2388,7 @@ def api_get_emails(email_addr):
         )
         return jsonify({'success': False, 'error': error_payload})
 
-    folder = normalize_folder_name(request.args.get('folder', 'inbox'))
+    folder = normalize_folder_name(request.args.get('folder', 'all'))
     skip = int(request.args.get('skip', 0))
     top = int(request.args.get('top', 20))
     result = fetch_account_emails(account, folder, skip, top)

@@ -7,6 +7,7 @@ import { useThemeStore } from '@/store/modules/theme';
 import { useAppStore } from '@/store/modules/app';
 import { setLocale } from '@/locales';
 import { Icon } from '@iconify/vue';
+import { copyText } from '@/utils/clipboard';
 
 const message = useMessage();
 const { t } = useI18n();
@@ -136,8 +137,9 @@ async function saveApiKey() {
 }
 
 async function copyApiKey() {
-  await navigator.clipboard.writeText(apiKey.value);
-  message.success('已复制');
+  const ok = await copyText(apiKey.value);
+  if (ok) message.success('已复制');
+  else message.error('复制失败，请手动选择');
 }
 
 function applyLocale(v: 'zh-CN' | 'en-US') {
